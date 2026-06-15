@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>家族健康档案</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.2/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/oidc-client-ts@3/dist/browser/oidc-client-ts.min.js"></script>
+<style>
+  :root {
+    --ink: #1a2b2b;
+    --teal-900: #0f3d3a;
+    --teal-700: #16615b;
+    --teal-500: #2a8f86;
+    --teal-100: #d8ece9;
+    --teal-50: #eef6f4;
+    --ochre: #9a4a2f;
+    --ochre-bg: #f5e6df;
+    --amber-700: #8a5a14;
+    --amber-bg: #f6ecd8;
+    --paper: #f8f9f7;
+    --card: #ffffff;
+    --line: #e2e8e5;
+  }
+  body { background: var(--paper); color: var(--ink); font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .serif { font-family: "Georgia", "Songti SC", serif; }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #cdd8d4; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ── API 基址。生产环境指向编排服务，开发时用 mock。 ──
+const API_BASE = "http://127.0.0.1:8000";
+const USE_MOCK = false;
+
+// ── OIDC 配置（授权码 + PKCE，oidc-client-ts 管理令牌生命周期） ──
+// 浏览器侧 authority = localhost:9100（匹配 Authentik 签发 token 的 iss claim）
+// orchestrator 侧 JWKS_URL = authentik-server:9000（容器内网，见 auth.py）
+const _UM = USE_MOCK ? null : new oidc.UserManager({
+  authority:     "http://localhost:9100/application/o/virtual-hospital/",
+  client_id:     "FqESExIdzWZZgkwh55IHiABpaSmasxfjAq1ztBVB",
+  redirect_uri:  "http://localhost:5500/",
+  response_type: "code",
+  scope:         "openid profile",
+  automaticSilentRenew: false,
+});
+
+async function login() {
+  await _UM.signinRedirect();
+}
+
+async function authHeaders() {
+  if (USE_MOCK) return { "Authorization": "Bearer mock-token" };
+  const u = await _UM.getUser();
+  return (u && !u.expired) ? { "Authorization": `Bearer ${u.access_token}` } : {};
+}
+
+// ── Mock 数据，便于无后端时预览全流程 ──
+const MOCK_MEMBERS = [
+  { id: "m1", full_name: "张明远", relation: "本人", birth_date: "1968-03-12" },
+  { id: "m2", full_name: "李慧", relation: "配偶", birth_date: "1971-09-05" },
+  { id: "m3", full_name: "张晓宇", relation: "子女", birth_date: "2001-06-20" },
+];
+const MOCK_RECORDS = {
+  m1: [
+    { id: "r1", record_type: "lab_report", source_org: "某三甲医院", record_date: "2025-05-10", extracted_zh: "空腹血糖 7.4 mmol/L，糖化血红蛋白 6.8%，收缩压 145 mmHg" },
+    { id: "r2", record_type: "checkup", source_org: "体检中心", record_date: "2024-11-02", extracted_zh: "常规体检，LDL 3.2 mmol/L" },
+  ],
+  m2: [
+    { id: "r3", record_type: "lab_report", source_org: "某医院", record_date: "2025-04-18", extracted_zh: "甲状腺功能正常，空腹血糖 5.2 mmol/L" },
+  ],
+  m3: [],
+};
+
+async function apiAssess(memberId, recordId, zhData) {
+  if (USE_MOCK) {
+    await new Promise(r => setTimeout(r, 1400));
+    return {
+      report_zh: "根据所提供的检验数据，空腹血糖（fasting plasma glucose）为 7.4 mmol/L，已达到或超过糖尿病诊断阈值 7.0 mmol/L [WHO 2019 DM]。糖化血红蛋白（HbA1c）6.8% 同样超过 6.5% 的诊断阈值 [ADA 2024]。收缩压（systolic blood pressure）145 mmHg 处于一级高血压范围 [NICE NG136]。\n\n建议：上述为基于国际指南阈值的客观判断，非临床诊断。建议携带完整检验报告咨询专业医师，进行确诊与后续管理。",
+      risk_sources: ["WHO 2019 DM", "ADA 2024", "NICE NG136"],
+      findings_en: "FINDINGS: Fasting plasma glucose 7.4 mmol/L; HbA1c 6.8%; systolic BP 145 mmHg.\nASSESSMENT: FPG and HbA1c both at/above diabetes diagnostic thresholds [WHO 2019 DM][ADA 2024]. SBP in stage 1 hypertension range [NICE NG136].\nRISK LEVEL: high\nLIMITATIONS: Single measurement; not a clinical diagnosis.",
+      rule_hits: [
+        { metric: "fasting_glucose_mmol_l", value: 7.4, conclusion: "空腹血糖达到或超过糖尿病诊断阈值（7.0 mmol/L）", citation_id: "WHO 2019 DM", severity: "high" },
+        { metric: "hba1c_percent", value: 6.8, conclusion: "HbA1c 达到或超过糖尿病诊断阈值（6.5%）", citation_id: "ADA 2024", severity: "high" },
+        { metric: "systolic_bp_mmhg", value: 145, conclusion: "收缩压达到或超过 140 mmHg（一级高血压或以上）", citation_id: "NICE NG136", severity: "moderate" },
+      ],
+      metrics: { fasting_glucose_mmol_l: 7.4, hba1c_percent: 6.8, systolic_bp_mmhg: 145, ldl_mmol_l: 3.2 },
+    };
+  }
+  const resp = await fetch(`${API_BASE}/assess`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify({ member_id: memberId, record_id: recordId, zh_data: zhData }),
+  });
+  if (resp.status === 401) { await _UM.signinRedirect(); throw new Error("会话已过期，正在重新登录"); }
+  if (resp.status === 403) throw new Error("无权对该成员运行评估");
+  if (!resp.ok) throw new Error(`评估失败：${resp.status}`);
+  return resp.json();
+}
+
+const RECORD_TYPE_LABEL = {
+  prescription: "处方", lab_report: "检验报告", imaging: "影像", checkup: "体检报告",
+};
+const SEVERITY = {
+  high: { label: "高", fg: "var(--ochre)", bg: "var(--ochre-bg)" },
+  moderate: { label: "中", fg: "var(--amber-700)", bg: "var(--amber-bg)" },
+  low: { label: "低", fg: "var(--teal-700)", bg: "var(--teal-100)" },
+};
+
+function age(birth) {
+  if (!birth) return "—";
+  return Math.floor((Date.now() - new Date(birth)) / 3.15576e10) + " 岁";
+}
+
+// ── 左侧成员栏 ──
+function MemberSidebar({ members, activeId, onSelect }) {
+  return (
+    <aside className="w-64 shrink-0 border-r min-h-screen p-5" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+      <div className="mb-6">
+        <h1 className="serif text-xl" style={{ color: "var(--teal-900)" }}>家族健康档案</h1>
+        <p className="text-xs mt-1" style={{ color: "var(--teal-700)" }}>本地私有 · 数据不出家门</p>
+      </div>
+      <nav className="space-y-1">
+        {members.map(m => {
+          const active = m.id === activeId;
+          return (
+            <button key={m.id} onClick={() => onSelect(m.id)}
+              className="w-full text-left px-3 py-2.5 rounded-lg transition-colors"
+              style={{ background: active ? "var(--teal-100)" : "transparent" }}>
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-sm" style={{ color: active ? "var(--teal-900)" : "var(--ink)" }}>{m.full_name}</span>
+                <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>{m.relation}</span>
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: "#7a8a86" }}>{age(m.birth_date)}</div>
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
+  );
+}
+
+// ── 健康记录卡片 ──
+function RecordCard({ rec, onAssess, assessing }) {
+  return (
+    <div className="rounded-xl border p-4" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+      <div className="flex items-start justify-between">
+        <div>
+          <span className="text-xs px-2 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>
+            {RECORD_TYPE_LABEL[rec.record_type] || rec.record_type}
+          </span>
+          <span className="text-xs ml-2" style={{ color: "#7a8a86" }}>{rec.record_date} · {rec.source_org}</span>
+        </div>
+        <button onClick={() => onAssess(rec)} disabled={assessing}
+          className="text-xs px-3 py-1.5 rounded-lg font-medium transition-opacity disabled:opacity-50"
+          style={{ background: "var(--teal-500)", color: "#fff" }}>
+          {assessing ? "评估中…" : "运行评估"}
+        </button>
+      </div>
+      <p className="text-sm mt-3 leading-relaxed" style={{ color: "var(--ink)" }}>{rec.extracted_zh}</p>
+    </div>
+  );
+}
+
+// ── 双轨评估结果 ──
+function AssessmentResult({ result }) {
+  if (!result) return null;
+  return (
+    <div className="mt-5 rounded-xl border p-5" style={{ borderColor: "var(--teal-100)", background: "var(--teal-50)" }}>
+      <h3 className="serif text-lg mb-4" style={{ color: "var(--teal-900)" }}>评估报告</h3>
+
+      {/* 轨道一：确定性规则命中 */}
+      {result.rule_hits.length > 0 && (
+        <div className="mb-5">
+          <div className="text-xs font-medium mb-2 flex items-center gap-1.5" style={{ color: "var(--teal-700)" }}>
+            <span className="inline-block w-2 h-2 rounded-full" style={{ background: "var(--teal-500)" }}></span>
+            确定性判断 · 规则引擎
+          </div>
+          <div className="space-y-2">
+            {result.rule_hits.map((h, i) => {
+              const sev = SEVERITY[h.severity] || SEVERITY.low;
+              return (
+                <div key={i} className="rounded-lg p-3 text-sm" style={{ background: "var(--card)", borderLeft: `3px solid ${sev.fg}` }}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{h.conclusion}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded shrink-0 ml-2" style={{ background: sev.bg, color: sev.fg }}>{sev.label}</span>
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: "#7a8a86" }}>
+                    {h.metric} = {h.value} · 来源 [{h.citation_id}]
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 轨道二：循证解释 */}
+      <div className="mb-4">
+        <div className="text-xs font-medium mb-2 flex items-center gap-1.5" style={{ color: "var(--teal-700)" }}>
+          <span className="inline-block w-2 h-2 rounded-full border" style={{ borderColor: "var(--teal-500)" }}></span>
+          循证解释 · 指南检索推理
+        </div>
+        <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--ink)" }}>{result.report_zh}</p>
+      </div>
+
+      {/* 来源引用 */}
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {result.risk_sources.map((s, i) => (
+          <span key={i} className="text-xs px-2 py-0.5 rounded" style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>{s}</span>
+        ))}
+      </div>
+
+      {/* 英文中间结果折叠 */}
+      <details className="mt-3">
+        <summary className="text-xs cursor-pointer" style={{ color: "var(--teal-700)" }}>查看英文推理过程（审计溯源）</summary>
+        <pre className="text-xs mt-2 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap" style={{ background: "var(--card)", color: "#5a6a66" }}>{result.findings_en}</pre>
+      </details>
+    </div>
+  );
+}
+
+// ── 主面板 ──
+function MemberDetail({ member, records }) {
+  const [assessingId, setAssessingId] = useState(null);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => { setResult(null); setError(null); }, [member.id]);
+
+  async function handleAssess(rec) {
+    setAssessingId(rec.id); setError(null); setResult(null);
+    try {
+      const r = await apiAssess(member.id, rec.id, rec.extracted_zh);
+      setResult(r);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setAssessingId(null);
+    }
+  }
+
+  return (
+    <main className="flex-1 p-8 max-w-3xl">
+      <div className="flex items-baseline gap-3 mb-1">
+        <h2 className="serif text-2xl" style={{ color: "var(--teal-900)" }}>{member.full_name}</h2>
+        <span className="text-sm" style={{ color: "#7a8a86" }}>{member.relation} · {age(member.birth_date)}</span>
+      </div>
+      <p className="text-sm mb-6" style={{ color: "#7a8a86" }}>健康记录 {records.length} 条</p>
+
+      {records.length === 0 ? (
+        <div className="rounded-xl border border-dashed p-10 text-center" style={{ borderColor: "var(--line)" }}>
+          <p className="text-sm" style={{ color: "#7a8a86" }}>暂无健康记录</p>
+          <p className="text-xs mt-1" style={{ color: "#9aa8a4" }}>上传检验报告、体检报告或处方后可运行评估</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {records.map(rec => (
+            <RecordCard key={rec.id} rec={rec} onAssess={handleAssess} assessing={assessingId === rec.id} />
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-5 rounded-lg p-4 text-sm" style={{ background: "var(--ochre-bg)", color: "var(--ochre)" }}>
+          评估未能完成：{error}。请确认编排服务正在运行。
+        </div>
+      )}
+
+      <AssessmentResult result={result} />
+
+      <p className="text-xs mt-8 pt-4 border-t" style={{ borderColor: "var(--line)", color: "#9aa8a4" }}>
+        本系统为私人健康记录与评估辅助工具，输出不构成医疗诊断，不替代专业医疗。
+      </p>
+    </main>
+  );
+}
+
+function LoginGate() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="text-center">
+        <h1 className="serif text-2xl mb-2" style={{ color: "var(--teal-900)" }}>家族健康档案</h1>
+        <p className="text-sm mb-6" style={{ color: "#7a8a86" }}>本地私有 · 数据不出家门</p>
+        <button onClick={login} className="px-5 py-2.5 rounded-lg font-medium text-sm"
+          style={{ background: "var(--teal-500)", color: "#fff" }}>登录</button>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [oidcReady, setOidcReady] = useState(USE_MOCK);
+  const [members, setMembers] = useState(USE_MOCK ? MOCK_MEMBERS : []);
+  const [recordsMap, setRecordsMap] = useState(USE_MOCK ? MOCK_RECORDS : {});
+  const [activeId, setActiveId] = useState(USE_MOCK ? MOCK_MEMBERS[0].id : null);
+  const [loadErr, setLoadErr] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // OIDC 初始化：处理登录回调或恢复已有会话
+  useEffect(() => {
+    if (USE_MOCK) return;
+    (async () => {
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has("code") && url.searchParams.has("state")) {
+          // 授权码回调 — 交换 code 取 token
+          const u = await _UM.signinRedirectCallback();
+          window.history.replaceState({}, "", "http://localhost:5500/");
+          setUser(u);
+        } else {
+          // 检查 oidc-client-ts 本地缓存的有效 session
+          const u = await _UM.getUser();
+          if (u && !u.expired) setUser(u);
+        }
+      } catch (e) {
+        console.error("OIDC init error:", e);
+      } finally {
+        setOidcReady(true);
+      }
+    })();
+  }, []);
+
+  // 登录后拉成员列表
+  useEffect(() => {
+    if (USE_MOCK || !user) return;
+    setLoading(true);
+    authHeaders().then(h => fetch(`${API_BASE}/members`, { headers: h }))
+      .then(async r => {
+        if (r.status === 401) { _UM.signinRedirect(); return; }
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          throw new Error(d.detail || `加载成员失败 ${r.status}`);
+        }
+        return r.json();
+      })
+      .then(data => {
+        if (!data) return;
+        setMembers(data);
+        if (data.length) setActiveId(data[0].id);
+      })
+      .catch(e => setLoadErr(e.message))
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  // 切换成员时拉记录
+  useEffect(() => {
+    if (USE_MOCK || !activeId || recordsMap[activeId] !== undefined) return;
+    authHeaders().then(h => fetch(`${API_BASE}/members/${activeId}/records`, { headers: h }))
+      .then(async r => {
+        if (!r.ok) return [];
+        return r.json();
+      })
+      .then(data => setRecordsMap(prev => ({ ...prev, [activeId]: data })))
+      .catch(() => setRecordsMap(prev => ({ ...prev, [activeId]: [] })));
+  }, [activeId]);
+
+  if (!oidcReady) return (
+    <div className="flex min-h-screen items-center justify-center">
+      <p style={{ color: "var(--teal-700)" }}>正在初始化…</p>
+    </div>
+  );
+
+  if (!USE_MOCK && !user) return <LoginGate />;
+
+  if (loading) return (
+    <div className="flex min-h-screen items-center justify-center">
+      <p style={{ color: "var(--teal-700)" }}>正在连接后端…</p>
+    </div>
+  );
+
+  const active = members.find(m => m.id === activeId) || null;
+  const records = (USE_MOCK ? MOCK_RECORDS[activeId] : recordsMap[activeId]) || [];
+
+  return (
+    <div className="flex min-h-screen">
+      <MemberSidebar members={members} activeId={activeId} onSelect={setActiveId} />
+      <div className="flex-1">
+        {loadErr && (
+          <div className="m-6 p-4 rounded-lg text-sm" style={{ background: "var(--ochre-bg)", color: "var(--ochre)" }}>
+            {loadErr}
+          </div>
+        )}
+        {active && <MemberDetail member={active} records={records} />}
+        {!active && !loadErr && (
+          <div className="flex items-center justify-center h-full text-sm" style={{ color: "#7a8a86" }}>
+            {members.length === 0 ? "暂无成员记录" : "请从左侧选择成员"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

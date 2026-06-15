@@ -1,0 +1,28 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "test-echo",
+			"type": "shell",
+			"command": "echo",
+			"args": [
+				"hi"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "probe-echo-1",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"-lc",
+				"echo hi"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		}
+	]
+}

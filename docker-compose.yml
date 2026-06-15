@@ -1,0 +1,195 @@
+services:
+  # ────────────────────────────────────────────────────────
+  # Ollama — 本地模型推理引擎（双卡）
+  # 约束 A 合规模型：gemma2(谷歌) / meditron(EPFL) / nomic-embed(美)
+  # ────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: vh-ollama
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    restart: unless-stopped
+    runtime: nvidia              # 触发 nvidia-container-runtime 注入驱动库（仅设备节点不够）
+    ports:
+      - "127.0.0.1:11434:11434"   # 仅绑定本地回环，不对外暴露
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=0          # 用完立即释放显存，多模型串行管道必需
+      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_NUM_PARALLEL=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all          # 双卡全部交给 Ollama 调度
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ────────────────────────────────────────────────────────
+  # PostgreSQL 16 + pgvector — 健康档案 + 规则库 + 向量索引
+  # ────────────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: vh-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      - POSTGRES_USER=${PG_USER:-vhadmin}
+      - POSTGRES_PASSWORD=${PG_PASSWORD:?must set PG_PASSWORD in .env}
+      - POSTGRES_DB=${PG_DB:-virtual_hospital}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro   # 启动时自动建表
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-vhadmin} -d ${PG_DB:-virtual_hospital}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ────────────────────────────────────────────────────────
+  # MinIO — 原始 PDF / 检验报告 / 影像文件对象存储
+  # ────────────────────────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: vh-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_USER:-vhminio}
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD:?must set MINIO_PASSWORD in .env}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ────────────────────────────────────────────────────────
+  # Orchestrator — FastAPI 编排服务，实现翻译三明治管道
+  # ────────────────────────────────────────────────────────
+  orchestrator:
+    build: ./orchestrator
+    container_name: vh-orchestrator
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - PG_DSN=postgresql://${PG_USER:-vhadmin}:${PG_PASSWORD}@postgres:5432/${PG_DB:-virtual_hospital}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_USER=${MINIO_USER:-vhminio}
+      - MINIO_PASSWORD=${MINIO_PASSWORD}
+      - MODEL_TRANSLATE=gemma2:27b
+      - MODEL_REASONING=meditron:70b
+      - MODEL_EMBED=nomic-embed-text:v1.5
+      - OIDC_ISSUER=${OIDC_ISSUER:-http://authentik-server:9000/application/o/virtual-hospital/}
+      - OIDC_JWKS_URL=${OIDC_JWKS_URL:-http://authentik-server:9000/application/o/virtual-hospital/jwks/}
+      - OIDC_AUDIENCE=${OIDC_AUDIENCE:-virtual-hospital}
+      - DEV_BYPASS_AUTH=${DEV_BYPASS_AUTH:-}
+    volumes:
+      - ./terminology:/app/terminology:ro   # 中英医学术语对照表
+    depends_on:
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # ────────────────────────────────────────────────────────
+  # Ingestion — 指南摄取任务（按需执行，非常驻）
+  # 用法：docker compose run --rm ingestion ingest --pdf ... --org ...
+  # profiles 使其不随 `docker compose up` 自动启动
+  # ────────────────────────────────────────────────────────
+  ingestion:
+    build: ./ingestion
+    container_name: vh-ingestion
+    profiles: ["tools"]
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - PG_DSN=postgresql://${PG_USER:-vhadmin}:${PG_PASSWORD}@postgres:5432/${PG_DB:-virtual_hospital}
+      - MODEL_EMBED=nomic-embed-text:v1.5
+      - HF_ENDPOINT=https://hf-mirror.com
+    volumes:
+      - ./guidelines:/data:ro          # 将待摄取 PDF 放入 ./guidelines
+    depends_on:
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  # ────────────────────────────────────────────────────────
+  # Authentik — OIDC 身份提供方（认证层）
+  # 授权逻辑在 orchestrator，此处仅负责"你是谁"
+  # ────────────────────────────────────────────────────────
+  authentik-redis:
+    image: redis:7-alpine
+    container_name: vh-authentik-redis
+    restart: unless-stopped
+    command: --save 60 1 --loglevel warning
+    volumes:
+      - authentik-redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2024.10
+    container_name: vh-authentik-server
+    restart: unless-stopped
+    command: server
+    environment:
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY:?must set in .env}
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+      - AUTHENTIK_POSTGRESQL__HOST=postgres
+      - AUTHENTIK_POSTGRESQL__USER=${PG_USER:-vhadmin}
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${PG_PASSWORD}
+      - AUTHENTIK_POSTGRESQL__NAME=${AUTHENTIK_DB:-authentik}
+    ports:
+      - "127.0.0.1:9100:9000"   # 9000 already used by MinIO; Authentik binds 9100 on host
+    depends_on:
+      postgres:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2024.10
+    container_name: vh-authentik-worker
+    restart: unless-stopped
+    command: worker
+    environment:
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY:?must set in .env}
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+      - AUTHENTIK_POSTGRESQL__HOST=postgres
+      - AUTHENTIK_POSTGRESQL__USER=${PG_USER:-vhadmin}
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${PG_PASSWORD}
+      - AUTHENTIK_POSTGRESQL__NAME=${AUTHENTIK_DB:-authentik}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      authentik-redis:
+        condition: service_healthy
+
+volumes:
+  ollama-models:
+  pg-data:
+  minio-data:
+  authentik-redis:
