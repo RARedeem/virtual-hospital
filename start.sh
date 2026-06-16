@@ -87,12 +87,20 @@ fi
 
 # ---- 6. 托管前端 ----
 step "托管前端 (localhost:$FRONTEND_PORT)"
-if lsof -i :"$FRONTEND_PORT" >/dev/null 2>&1; then
-    ok "端口 $FRONTEND_PORT 已有服务在跑（可能是上次的前端），跳过"
+frontend_pid=$(lsof -i :"$FRONTEND_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1)
+if [[ -n "$frontend_pid" ]]; then
+    cmd=$(ps -p "$frontend_pid" -o cmd= 2>/dev/null || echo "unknown")
+    if echo "$cmd" | grep -q "http.server.*$FRONTEND_PORT"; then
+        ok "前端已在运行（pid=$frontend_pid），跳过"
+    else
+        err "端口 $FRONTEND_PORT 被非前端进程占用（pid=$frontend_pid，cmd=$cmd）"
+        warn "请手动释放端口后重试：kill $frontend_pid"
+        warn "或改用其他端口：FRONTEND_PORT=5501 ./start.sh"
+    fi
 else
     ( cd frontend && nohup python3 -m http.server "$FRONTEND_PORT" >/tmp/vh-frontend.log 2>&1 & )
     sleep 1
-    if lsof -i :"$FRONTEND_PORT" >/dev/null 2>&1; then
+    if lsof -i :"$FRONTEND_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
         ok "前端已托管：http://localhost:$FRONTEND_PORT （日志 /tmp/vh-frontend.log）"
     else
         warn "前端托管未确认，手动跑： cd frontend && python3 -m http.server $FRONTEND_PORT"

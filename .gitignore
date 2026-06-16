@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 *.pyo
+.idea/
+dashboard.html
+frontend/dashboard.html
+progress_router.py
+files (1)/

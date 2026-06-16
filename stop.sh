@@ -21,3 +21,4 @@ docker compose down
 echo ""
 echo "已全部停止。数据保留在 docker 卷中（pg-data / minio-data / ollama-models），不会丢失。"
 echo "下次启动： ./start.sh"
+pkill -f "python3 -m http.server 5500" 2>/dev/null || true
