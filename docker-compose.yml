@@ -11,8 +11,6 @@ services:
       - 8.8.8.8
     restart: unless-stopped
     runtime: nvidia              # 触发 nvidia-container-runtime 注入驱动库（仅设备节点不够）
-    ports:
-      - "127.0.0.1:11434:11434"   # 仅绑定本地回环，不对外暴露
     volumes:
       - ollama-models:/root/.ollama
     environment:

@@ -129,12 +129,14 @@ async def reason(patient_en: str, guidelines: list[dict],
     )
 
     prompt = (
+        f"{rules_block}"
         f"GUIDELINE CONTEXT:\n{context}\n\n"
+        f"{few_shot}"
+        f"{critical_rules}"
         f"PATIENT DATA:\n{patient_en}\n\n"
-        f"Based on the guideline context below, assess this patient's findings. "
-        f"Cite specific thresholds or recommendations from the guideline. "
-        f"Be concise and specific to this patient's actual data. "
-        f"Do not mention any findings not present in the patient data."
+        f"Provide an evidence-based assessment following the structure above. "
+        f"Treat the deterministic rule findings above as established; explain "
+        f"and contextualize them using only the guideline context. Cite sources as given."
     )
     return await oc.generate(MODEL_REASONING, prompt)
 
