@@ -150,3 +150,6 @@ class _ConnAdapter:
             await cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in await cur.fetchall()]
+
+from app.progress_router import router as progress_router
+app.include_router(progress_router)
