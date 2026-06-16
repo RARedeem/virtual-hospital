@@ -39,7 +39,7 @@ CHECK 约束）。遇到与约束 A/B 冲突的情况必须停下来确认，不
 
 - 7 个容器已起：ollama / postgres / minio / orchestrator /
   authentik-server / authentik-worker / authentik-redis
-- 6 个模型已加载就位：gemma2:27b, meditron:70b, nomic-embed-text:v1.5,
+- 模型已加载：gemma4:31b, meditron:70b, nomic-embed-text:v1.5,
   及三个自定义模型 translator-zh-en / translator-en-zh / reasoner-meditron
 - **vh-authentik-server 状态是 unhealthy，待排查**
 - 网络问题根因记录：容器默认走 IPv6 但本机 IPv6 不可达。已给 ollama 服务
