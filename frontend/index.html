@@ -50,7 +50,7 @@ const _UM = USE_MOCK ? null : new oidc.UserManager({
   redirect_uri:  "http://localhost:5500/",
   response_type: "code",
   scope:         "openid profile",
-  automaticSilentRenew: false,
+  automaticSilentRenew: true,
 });
 
 async function login() {
@@ -60,7 +60,18 @@ async function login() {
 async function authHeaders() {
   if (USE_MOCK) return { "Authorization": "Bearer mock-token" };
   const u = await _UM.getUser();
-  return (u && !u.expired) ? { "Authorization": `Bearer ${u.access_token}` } : {};
+  if (u && !u.expired) {
+    return { "Authorization": `Bearer ${u.access_token}` };
+  }
+  try {
+    const renewed = await _UM.signinSilent();
+    if (renewed && !renewed.expired) {
+      return { "Authorization": `Bearer ${renewed.access_token}` };
+    }
+  } catch (e) {
+    console.warn("静默续期失败", e);
+  }
+  return {};
 }
 
 // ── Mock 数据，便于无后端时预览全流程 ──
@@ -105,6 +116,14 @@ async function apiAssess(memberId, recordId, zhData) {
   if (!resp.ok) throw new Error(`评估失败：${resp.status}`);
   return resp.json();
 }
+
+// ── 科室配置（严格四科） ──
+const DEPARTMENTS = [
+  { key: "cardiology",    label: "心血管内科", icon: "❤️",  desc: "高血压 · 冠心病 · 心律失常" },
+  { key: "endocrinology", label: "内分泌科",   icon: "🧪",  desc: "糖尿病 · 甲状腺 · 代谢综合征" },
+  { key: "urology",       label: "泌尿外科",   icon: "🫘",  desc: "前列腺 · 肾结石 · 尿路感染" },
+  { key: "neurology",     label: "神经内科",   icon: "🧠",  desc: "头痛 · 眩晕 · 周围神经病变" },
+];
 
 const RECORD_TYPE_LABEL = {
   prescription: "处方", lab_report: "检验报告", imaging: "影像", checkup: "体检报告",
@@ -228,13 +247,81 @@ function AssessmentResult({ result }) {
   );
 }
 
-// ── 主面板 ──
+// ── 主面板（F5 挂号视图 / F6 问诊视图 / 默认档案视图） ──
 function MemberDetail({ member, records }) {
+  const [view, setView] = useState("profile");   // "profile" | "department" | "interview"
+  const [dept, setDept] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState("");
+  const [busy, setBusy] = useState(false);
   const [assessingId, setAssessingId] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [symptomPackage, setSymptomPackage] = useState(null);
 
-  useEffect(() => { setResult(null); setError(null); }, [member.id]);
+  function startInterview() { setView("department"); setError(null); }
+
+  useEffect(() => {
+    setView("profile"); setDept(null); setMessages([]);
+    setInputText(""); setResult(null); setError(null); setSymptomPackage(null);
+  }, [member.id]);
+
+  async function chooseDept(deptKey) {
+    setBusy(true); setError(null);
+    try {
+      const h = await authHeaders();
+      const resp = await fetch(`${API_BASE}/interview/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...h },
+        body: JSON.stringify({ department: deptKey }),
+      });
+      if (!resp.ok) throw new Error(`挂号失败：${resp.status}`);
+      const data = await resp.json();
+      setDept(deptKey);
+      setMessages(data.message ? [{ role: "ai", text: data.message }] : []);
+      setView("interview");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendMessage() {
+    const text = inputText.trim();
+    if (!text || busy) return;
+    setInputText("");
+    setMessages(prev => [...prev, { role: "user", text }]);
+    setBusy(true);
+    try {
+      const h = await authHeaders();
+      const resp = await fetch(`${API_BASE}/interview/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...h },
+        body: JSON.stringify({ message: text }),
+      });
+      if (!resp.ok) throw new Error(`通信失败：${resp.status}`);
+      const data = await resp.json();
+      if (data.done) {
+        setMessages(prev => [...prev, {
+          role: "ai",
+          text: "问诊已完成，已生成症状数据包。",
+          done: true
+        }]);
+        setSymptomPackage(data.symptom_package);
+      } else {
+        setMessages(prev => [...prev, {
+          role: "ai",
+          text: data.message,
+          done: false
+        }]);
+      }
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "ai", text: `错误：${e.message}` }]);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleAssess(rec) {
     setAssessingId(rec.id); setError(null); setResult(null);
@@ -248,11 +335,103 @@ function MemberDetail({ member, records }) {
     }
   }
 
+  const deptInfo = DEPARTMENTS.find(d => d.key === dept);
+  const isDone = messages.length > 0 && messages[messages.length - 1].done;
+
+  // ── F5：科室选择视图 ──
+  if (view === "department") return (
+    <main className="flex-1 p-8 max-w-3xl">
+      <div className="flex items-center gap-3 mb-8">
+        <button onClick={() => setView("profile")} className="text-sm" style={{ color: "var(--teal-700)" }}>← 返回</button>
+        <h2 className="serif text-2xl" style={{ color: "var(--teal-900)" }}>选择科室</h2>
+      </div>
+      {error && (
+        <div className="mb-4 rounded-lg p-3 text-sm" style={{ background: "var(--ochre-bg)", color: "var(--ochre)" }}>{error}</div>
+      )}
+      <div className="grid grid-cols-2 gap-4">
+        {DEPARTMENTS.map(d => (
+          <button key={d.key} onClick={() => chooseDept(d.key)} disabled={busy}
+            className="rounded-xl border p-6 text-left transition-colors disabled:opacity-50"
+            style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+            <div className="text-3xl mb-3">{d.icon}</div>
+            <div className="font-medium text-base mb-1" style={{ color: "var(--teal-900)" }}>{d.label}</div>
+            <div className="text-xs" style={{ color: "#7a8a86" }}>{d.desc}</div>
+          </button>
+        ))}
+      </div>
+    </main>
+  );
+
+  // ── F6：问诊对话视图 ──
+  if (view === "interview") return (
+    <main className="flex-1 flex flex-col" style={{ height: "100vh" }}>
+      <div className="flex items-center gap-3 px-8 py-4 border-b shrink-0"
+           style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+        <button onClick={() => setView("department")} className="text-sm" style={{ color: "var(--teal-700)" }}>← 返回</button>
+        <span className="text-sm font-medium" style={{ color: "var(--teal-900)" }}>
+          {deptInfo ? `${deptInfo.icon} ${deptInfo.label}` : "问诊"} · {member.full_name}
+        </span>
+      </div>
+      <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-3">
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div className="max-w-md rounded-2xl px-4 py-3 text-sm leading-relaxed"
+              style={{
+                background: m.role === "user" ? "var(--teal-500)" : "var(--card)",
+                color: m.role === "user" ? "#fff" : "var(--ink)",
+                border: m.role === "ai" ? "1px solid var(--line)" : "none",
+              }}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {busy && (
+          <div className="flex justify-start">
+            <div className="rounded-2xl px-4 py-3 text-sm" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "#7a8a86" }}>
+              AI 正在回复…
+            </div>
+          </div>
+        )}
+        {isDone && (
+          <div className="text-center mt-4">
+            <p className="text-sm mb-3" style={{ color: "var(--teal-700)" }}>问诊完成</p>
+            <button onClick={() => setView("profile")}
+              className="text-sm px-4 py-2 rounded-lg font-medium"
+              style={{ background: "var(--teal-500)", color: "#fff" }}>返回档案</button>
+          </div>
+        )}
+      </div>
+      {!isDone && (
+        <div className="shrink-0 px-8 py-4 border-t flex gap-3"
+             style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+          <input type="text" value={inputText}
+            onChange={e => setInputText(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+            placeholder="描述症状或回答医生问题…"
+            className="flex-1 rounded-lg px-3 py-2 text-sm border"
+            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--paper)" }}
+            disabled={busy} />
+          <button onClick={sendMessage} disabled={busy || !inputText.trim()}
+            className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+            style={{ background: "var(--teal-500)", color: "#fff" }}>发送</button>
+        </div>
+      )}
+    </main>
+  );
+
+  // ── 档案视图（默认） ──
   return (
     <main className="flex-1 p-8 max-w-3xl">
-      <div className="flex items-baseline gap-3 mb-1">
-        <h2 className="serif text-2xl" style={{ color: "var(--teal-900)" }}>{member.full_name}</h2>
-        <span className="text-sm" style={{ color: "#7a8a86" }}>{member.relation} · {age(member.birth_date)}</span>
+      <div className="flex items-baseline justify-between mb-1">
+        <div className="flex items-baseline gap-3">
+          <h2 className="serif text-2xl" style={{ color: "var(--teal-900)" }}>{member.full_name}</h2>
+          <span className="text-sm" style={{ color: "#7a8a86" }}>{member.relation} · {age(member.birth_date)}</span>
+        </div>
+        <button onClick={startInterview}
+          className="text-sm px-4 py-1.5 rounded-lg font-medium"
+          style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>
+          + 开始问诊
+        </button>
       </div>
       <p className="text-sm mb-6" style={{ color: "#7a8a86" }}>健康记录 {records.length} 条</p>
 

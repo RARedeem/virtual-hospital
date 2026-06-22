@@ -30,7 +30,7 @@ OLLAMA_CONTAINER="vh-ollama"
 if [[ -f "${PROJECT_DIR}/.env" ]]; then
     set -a; source "${PROJECT_DIR}/.env"; set +a
 fi
-PG_USER="${PG_USER:-vhadmin}"
+PG_USER="${PG_USER:-yangrenming}"
 
 # ── 前置校验 ──
 err() { echo "[错误] $*" >&2; exit 1; }

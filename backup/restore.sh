@@ -22,7 +22,7 @@ MINIO_CONTAINER="vh-minio"
 OLLAMA_CONTAINER="vh-ollama"
 
 if [[ -f "${PROJECT_DIR}/.env" ]]; then set -a; source "${PROJECT_DIR}/.env"; set +a; fi
-PG_USER="${PG_USER:-vhadmin}"
+PG_USER="${PG_USER:-yangrenming}"
 
 err() { echo "[错误] $*" >&2; exit 1; }
 info() { echo "[$(date +%H:%M:%S)] $*"; }

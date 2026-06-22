@@ -7,3 +7,9 @@ dashboard.html
 frontend/dashboard.html
 progress_router.py
 files (1)/
+
+# secrets & local junk (added 2026-06-22)
+backup/.restic-password
+sbx.txt
+claude-code-jetbrains-plugin-0.1.14-beta/
+claude-code-jetbrains-plugin-0.1.14-beta.zip

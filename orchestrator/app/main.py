@@ -9,9 +9,13 @@ from pydantic import BaseModel
 
 from . import pipeline
 from . import auth
+from . import interviewer as interviewer_module
 from .auth import Principal
 
 PG_DSN = os.environ["PG_DSN"]
+
+# 内存 session 存储，key=user_id (principal.sub)
+INTERVIEW_SESSIONS: dict[str, interviewer_module.MedicalInterviewer] = {}
 
 
 @asynccontextmanager
@@ -36,6 +40,14 @@ class AssessRequest(BaseModel):
     member_id: str
     record_id: str | None = None
     zh_data: str          # 会员中文健康数据
+
+
+class InterviewStartRequest(BaseModel):
+    department: str
+
+
+class InterviewChatRequest(BaseModel):
+    message: str
 
 
 class AssessResponse(BaseModel):
@@ -103,6 +115,37 @@ async def list_member_records(member_id: str,
          "record_date": str(r[3]) if r[3] else None, "extracted_zh": r[4]}
         for r in rows
     ]
+
+
+@app.post("/interview/start")
+async def interview_start(
+    req: InterviewStartRequest,
+    principal: Principal = Depends(auth.get_principal)
+):
+    """启动 A1 问诊流程。"""
+    user_id = principal.sub
+    iv = interviewer_module.MedicalInterviewer(user_id, req.department)
+    INTERVIEW_SESSIONS[user_id] = iv
+
+    response, done = await iv.chat("开始问诊")
+    return {"message": response, "done": done}
+
+
+@app.post("/interview/chat")
+async def interview_chat(req: InterviewChatRequest,
+                         principal: Principal = Depends(auth.get_principal)):
+    """进行 A1 问诊多轮对话。"""
+    user_id = principal.sub
+    iv = INTERVIEW_SESSIONS.get(user_id)
+    if not iv:
+        raise HTTPException(status_code=400, detail="Interview session not started. Please call /interview/start first.")
+
+    response, done = await iv.chat(req.message)
+    if done:
+        del INTERVIEW_SESSIONS[user_id]
+        return {"symptom_package": response, "done": True}
+
+    return {"message": response, "done": False}
 
 
 @app.post("/assess", response_model=AssessResponse)
