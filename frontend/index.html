@@ -125,9 +125,21 @@ const DEPARTMENTS = [
   { key: "neurology",     label: "神经内科",   icon: "🧠",  desc: "头痛 · 眩晕 · 周围神经病变" },
 ];
 
+// 需求3：点科室后嵌入对话的首条过渡说明
+const INTRO_TEXT =
+  "本系统为保护您的隐私，全部推理均在本地模型完成，数据不出本机。" +
+  "因此单次问诊与评估可能需要数十秒甚至更久，请耐心等待——较长的处理时间属正常运行状态，不代表评估质量。\n\n" +
+  "本项目对标三甲全科的循证参考能力：国际权威指南检索 + 医学推理双轨评估，每条结论均标注证据来源，仅供参考、不替代专业医疗。\n\n" +
+  "正在为您接入主治医生，即将进入诊室…";
+
 const RECORD_TYPE_LABEL = {
   prescription: "处方", lab_report: "检验报告", imaging: "影像", checkup: "体检报告",
+  symptom_package: "问诊症状包",
 };
+const UPLOAD_TYPES = [
+  { key: "lab_report", label: "检验报告" }, { key: "imaging", label: "影像报告" },
+  { key: "checkup", label: "体检报告" }, { key: "prescription", label: "处方" },
+];
 const SEVERITY = {
   high: { label: "高", fg: "var(--ochre)", bg: "var(--ochre-bg)" },
   moderate: { label: "中", fg: "var(--amber-700)", bg: "var(--amber-bg)" },
@@ -247,51 +259,134 @@ function AssessmentResult({ result }) {
   );
 }
 
+// ── 上传报告条（需求2）：选类型 + 选文件（可多选），立即上传 ──
+function UploadBar({ busy, onUpload }) {
+  const [rtype, setRtype] = useState("lab_report");
+  const fileRef = React.useRef(null);
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs shrink-0" style={{ color: "#7a8a86" }}>📎 提交报告</span>
+      <select value={rtype} onChange={e => setRtype(e.target.value)} disabled={busy}
+        className="text-xs rounded-lg px-2 py-1.5 border"
+        style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--paper)" }}>
+        {UPLOAD_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+      </select>
+      <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" multiple className="hidden"
+        onChange={e => { if (e.target.files && e.target.files.length) onUpload(e.target.files, rtype); e.target.value = ""; }} />
+      <button onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}
+        className="text-xs px-3 py-1.5 rounded-lg font-medium border disabled:opacity-50"
+        style={{ borderColor: "var(--teal-500)", color: "var(--teal-900)", background: "var(--teal-50)" }}>
+        选择文件（PDF/图片，可多选）
+      </button>
+    </div>
+  );
+}
+
+// ── 选项卡（需求1）：单选即点即发；多选可勾多个，点"确定"再发 ──
+// "＋ 更多"：主题不变，向后端要更多选项追加进来（不清空已勾选）
+function OptionCards({ q, busy, onSubmit, onMore }) {
+  const [sel, setSel] = useState([]);
+  if (!q || !q.options || !q.options.length) return null;
+  const pill = (on) => ({
+    borderColor: "var(--teal-500)",
+    color: on ? "#fff" : "var(--teal-900)",
+    background: on ? "var(--teal-500)" : "var(--teal-50)",
+  });
+  const MoreBtn = (
+    <button onClick={onMore} disabled={busy}
+      className="px-3.5 py-2 rounded-full text-sm border border-dashed transition-colors disabled:opacity-50"
+      style={{ borderColor: "var(--teal-500)", color: "var(--teal-700)", background: "transparent" }}>
+      ＋ 更多
+    </button>
+  );
+  if (!q.multi) {
+    return (
+      <div className="flex flex-wrap gap-2 mt-1">
+        {q.options.map((opt, i) => (
+          <button key={i} onClick={() => onSubmit(opt)} disabled={busy}
+            className="px-3.5 py-2 rounded-full text-sm border transition-colors disabled:opacity-50"
+            style={pill(false)}>{opt}</button>
+        ))}
+        {MoreBtn}
+      </div>
+    );
+  }
+  const toggle = (o) => setSel(prev => prev.includes(o) ? prev.filter(x => x !== o) : [...prev, o]);
+  return (
+    <div className="mt-1">
+      <div className="text-xs mb-1.5" style={{ color: "#7a8a86" }}>可多选，选好后点"确定"</div>
+      <div className="flex flex-wrap gap-2 mb-2">
+        {q.options.map((opt, i) => {
+          const on = sel.includes(opt);
+          return (
+            <button key={i} onClick={() => toggle(opt)} disabled={busy}
+              className="px-3.5 py-2 rounded-full text-sm border transition-colors disabled:opacity-50"
+              style={pill(on)}>{on ? "✓ " : ""}{opt}</button>
+          );
+        })}
+        {MoreBtn}
+      </div>
+      <button onClick={() => sel.length && onSubmit(sel.join("、"))} disabled={busy || !sel.length}
+        className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+        style={{ background: "var(--teal-500)", color: "#fff" }}>
+        确定{sel.length ? `（已选 ${sel.length}）` : ""}
+      </button>
+    </div>
+  );
+}
+
 // ── 主面板（F5 挂号视图 / F6 问诊视图 / 默认档案视图） ──
-function MemberDetail({ member, records }) {
-  const [view, setView] = useState("profile");   // "profile" | "department" | "interview"
+function MemberDetail({ member, records, onRefreshRecords }) {
+  const [view, setView] = useState("department");   // 默认即进"选择科室"（"profile" | "department" | "interview"）
   const [dept, setDept] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState([]);   // 仅聊天气泡 {role, text}
+  const [pending, setPending] = useState(null);   // 当前待作答问题 {question,options,multi,allow_free_text}
+  const [done, setDone] = useState(false);        // 问诊是否结束
   const [inputText, setInputText] = useState("");
   const [busy, setBusy] = useState(false);
   const [assessingId, setAssessingId] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const [symptomPackage, setSymptomPackage] = useState(null);
 
   function startInterview() { setView("department"); setError(null); }
 
   useEffect(() => {
-    setView("profile"); setDept(null); setMessages([]);
-    setInputText(""); setResult(null); setError(null); setSymptomPackage(null);
+    setView("department"); setDept(null); setMessages([]); setPending(null); setDone(false);
+    setInputText(""); setResult(null); setError(null);
   }, [member.id]);
 
   async function chooseDept(deptKey) {
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setDone(false); setPending(null);
+    setDept(deptKey);
+    // 需求3：先进对话界面，首条 AI 消息即过渡说明（加载期间先呈现给用户）
+    setMessages([{ role: "ai", text: INTRO_TEXT }]);
+    setView("interview");
     try {
       const h = await authHeaders();
       const resp = await fetch(`${API_BASE}/interview/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...h },
-        body: JSON.stringify({ department: deptKey }),
+        body: JSON.stringify({ department: deptKey, member_id: member.id }),
       });
       if (!resp.ok) throw new Error(`挂号失败：${resp.status}`);
       const data = await resp.json();
-      setDept(deptKey);
-      setMessages(data.message ? [{ role: "ai", text: data.message }] : []);
-      setView("interview");
+      setMessages(prev => [...prev, { role: "ai", text: data.question || "请描述您的情况。" }]);
+      setPending({ question: data.question || "", options: data.options || [],
+                   multi: !!data.multi, allow_free_text: data.allow_free_text !== false });
     } catch (e) {
-      setError(e.message);
+      setMessages(prev => [...prev, { role: "ai", text: `挂号失败：${e.message}` }]);
     } finally {
       setBusy(false);
     }
   }
 
-  async function sendMessage() {
-    const text = inputText.trim();
+  // 作答（自由输入或点选项卡均走此）—— 会消费当前待选问题，推进问诊
+  async function sendMessage(forced) {
+    const text = (forced !== undefined ? forced : inputText).trim();
     if (!text || busy) return;
-    setInputText("");
+    if (forced === undefined) setInputText("");
     setMessages(prev => [...prev, { role: "user", text }]);
+    setPending(null);                 // 已作答，清掉待选
     setBusy(true);
     try {
       const h = await authHeaders();
@@ -303,23 +398,76 @@ function MemberDetail({ member, records }) {
       if (!resp.ok) throw new Error(`通信失败：${resp.status}`);
       const data = await resp.json();
       if (data.done) {
-        setMessages(prev => [...prev, {
-          role: "ai",
-          text: "问诊已完成，已生成症状数据包。",
-          done: true
-        }]);
-        setSymptomPackage(data.symptom_package);
+        setMessages(prev => [...prev, { role: "ai",
+          text: "问诊已完成，症状数据包已打时间戳归档为新病史。" }]);
+        setDone(true);
+        if (onRefreshRecords) onRefreshRecords();   // 需求4：新档案即时显现
       } else {
-        setMessages(prev => [...prev, {
-          role: "ai",
-          text: data.message,
-          done: false
-        }]);
+        setMessages(prev => [...prev, { role: "ai", text: data.question }]);
+        setPending({ question: data.question || "", options: data.options || [],
+                     multi: !!data.multi, allow_free_text: data.allow_free_text !== false });
       }
     } catch (e) {
       setMessages(prev => [...prev, { role: "ai", text: `错误：${e.message}` }]);
     } finally {
       setBusy(false);
+    }
+  }
+
+  // "更多"：为当前问题追加更多选项（主题不变、不清空已勾选、不推进问诊）
+  async function requestMore() {
+    if (busy || !pending) return;
+    setBusy(true);
+    try {
+      const h = await authHeaders();
+      const resp = await fetch(`${API_BASE}/interview/more`, { method: "POST", headers: h });
+      if (!resp.ok) throw new Error(`获取更多失败：${resp.status}`);
+      const data = await resp.json();
+      if (data.options && data.options.length) {
+        setPending(prev => prev ? { ...prev, options: [...prev.options, ...data.options] } : prev);
+      } else {
+        setMessages(prev => [...prev, { role: "ai", text: "暂时没有更多选项了，您可在下方直接输入补充。" }]);
+      }
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "ai", text: `获取更多选项出错：${e.message}` }]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 需求2：上传报告（可多文件）→ 后端存 MinIO + glm-ocr 建档
+  // 需求4：上传不触碰 pending，待选问题原样保留，不被打断
+  async function uploadReports(fileList, recordType) {
+    const files = fileList ? Array.from(fileList) : [];
+    if (!files.length || busy) return;
+    setError(null); setBusy(true);
+    try {
+      for (const f of files) {
+        setMessages(prev => [...prev, { role: "user", text: `📎 上传报告：${f.name}` }]);
+        try {
+          const fd = new FormData();
+          fd.append("file", f);
+          fd.append("member_id", member.id);
+          fd.append("record_type", recordType || "lab_report");
+          const h = await authHeaders();   // 不手动设 Content-Type，交浏览器补 multipart 边界
+          const resp = await fetch(`${API_BASE}/upload`, { method: "POST", headers: h, body: fd });
+          if (!resp.ok) {
+            const d = await resp.json().catch(() => ({}));
+            throw new Error(d.detail || `上传失败：${resp.status}`);
+          }
+          const data = await resp.json();
+          const ocrNote = data.extracted_zh
+            ? `已识别文字：\n${data.extracted_zh.slice(0, 200)}${data.extracted_zh.length > 200 ? "…" : ""}`
+            : (data.ocr_error ? `（OCR 未成功：${data.ocr_error}，原件已保存，可后续手动补录）` : "（未识别到文字）");
+          setMessages(prev => [...prev, { role: "ai",
+            text: `报告已归档（${RECORD_TYPE_LABEL[data.record_type] || data.record_type}）。${ocrNote}` }]);
+        } catch (e) {
+          setMessages(prev => [...prev, { role: "ai", text: `「${f.name}」上传出错：${e.message}` }]);
+        }
+      }
+      if (onRefreshRecords) onRefreshRecords();
+    } finally {
+      setBusy(false);   // pending 全程未动，待选问题仍在
     }
   }
 
@@ -336,7 +484,6 @@ function MemberDetail({ member, records }) {
   }
 
   const deptInfo = DEPARTMENTS.find(d => d.key === dept);
-  const isDone = messages.length > 0 && messages[messages.length - 1].done;
 
   // ── F5：科室选择视图 ──
   if (view === "department") return (
@@ -362,60 +509,99 @@ function MemberDetail({ member, records }) {
     </main>
   );
 
-  // ── F6：问诊对话视图 ──
+  // ── F6：问诊对话视图（左=对话/选项卡/上传，右=病史侧栏） ──
+  const allowFreeText = !pending || pending.allow_free_text !== false;
   if (view === "interview") return (
-    <main className="flex-1 flex flex-col" style={{ height: "100vh" }}>
-      <div className="flex items-center gap-3 px-8 py-4 border-b shrink-0"
-           style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-        <button onClick={() => setView("department")} className="text-sm" style={{ color: "var(--teal-700)" }}>← 返回</button>
-        <span className="text-sm font-medium" style={{ color: "var(--teal-900)" }}>
-          {deptInfo ? `${deptInfo.icon} ${deptInfo.label}` : "问诊"} · {member.full_name}
-        </span>
-      </div>
-      <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-3">
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className="max-w-md rounded-2xl px-4 py-3 text-sm leading-relaxed"
-              style={{
-                background: m.role === "user" ? "var(--teal-500)" : "var(--card)",
-                color: m.role === "user" ? "#fff" : "var(--ink)",
-                border: m.role === "ai" ? "1px solid var(--line)" : "none",
-              }}>
-              {m.text}
-            </div>
-          </div>
-        ))}
-        {busy && (
-          <div className="flex justify-start">
-            <div className="rounded-2xl px-4 py-3 text-sm" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "#7a8a86" }}>
-              AI 正在回复…
-            </div>
-          </div>
-        )}
-        {isDone && (
-          <div className="text-center mt-4">
-            <p className="text-sm mb-3" style={{ color: "var(--teal-700)" }}>问诊完成</p>
-            <button onClick={() => setView("profile")}
-              className="text-sm px-4 py-2 rounded-lg font-medium"
-              style={{ background: "var(--teal-500)", color: "#fff" }}>返回档案</button>
-          </div>
-        )}
-      </div>
-      {!isDone && (
-        <div className="shrink-0 px-8 py-4 border-t flex gap-3"
+    <main className="flex-1 flex" style={{ height: "100vh" }}>
+      {/* 左：对话列 */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex items-center gap-3 px-8 py-4 border-b shrink-0"
              style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-          <input type="text" value={inputText}
-            onChange={e => setInputText(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-            placeholder="描述症状或回答医生问题…"
-            className="flex-1 rounded-lg px-3 py-2 text-sm border"
-            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--paper)" }}
-            disabled={busy} />
-          <button onClick={sendMessage} disabled={busy || !inputText.trim()}
-            className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-            style={{ background: "var(--teal-500)", color: "#fff" }}>发送</button>
+          <button onClick={() => setView("department")} className="text-sm" style={{ color: "var(--teal-700)" }}>← 返回</button>
+          <span className="text-sm font-medium" style={{ color: "var(--teal-900)" }}>
+            {deptInfo ? `${deptInfo.icon} ${deptInfo.label}` : "问诊"} · {member.full_name}
+          </span>
         </div>
-      )}
+        <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-3">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className="max-w-md rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-line"
+                style={{
+                  background: m.role === "user" ? "var(--teal-500)" : "var(--card)",
+                  color: m.role === "user" ? "#fff" : "var(--ink)",
+                  border: m.role === "ai" ? "1px solid var(--line)" : "none",
+                }}>
+                {m.text}
+              </div>
+            </div>
+          ))}
+          {busy && (
+            <div className="flex justify-start">
+              <div className="rounded-2xl px-4 py-3 text-sm" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "#7a8a86" }}>
+                AI 正在回复…
+              </div>
+            </div>
+          )}
+          {/* 需求1：选项卡（单/多选）。由 pending 驱动，上传不会清掉它（需求4） */}
+          {!done && pending && (
+            <OptionCards key={pending.question} q={pending} busy={busy}
+              onSubmit={(t) => sendMessage(t)} onMore={requestMore} />
+          )}
+          {done && (
+            <div className="text-center mt-4">
+              <p className="text-sm mb-3" style={{ color: "var(--teal-700)" }}>问诊完成 · 症状包已归档</p>
+              <button onClick={() => setView("profile")}
+                className="text-sm px-4 py-2 rounded-lg font-medium"
+                style={{ background: "var(--teal-500)", color: "#fff" }}>返回档案</button>
+            </div>
+          )}
+        </div>
+        {!done && (
+          <div className="shrink-0 px-8 py-4 border-t flex flex-col gap-3"
+               style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+            {/* 需求2：上传报告（可多选文件） */}
+            <UploadBar busy={busy} onUpload={uploadReports} />
+            {/* 自由输入兜底 */}
+            <div className="flex gap-3">
+              <input type="text" value={inputText}
+                onChange={e => setInputText(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                placeholder={allowFreeText ? "描述症状或回答医生问题…" : "可点击上方选项，或在此补充…"}
+                className="flex-1 rounded-lg px-3 py-2 text-sm border"
+                style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--paper)" }}
+                disabled={busy} />
+              <button onClick={() => sendMessage()} disabled={busy || !inputText.trim()}
+                className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                style={{ background: "var(--teal-500)", color: "#fff" }}>发送</button>
+            </div>
+          </div>
+        )}
+      </div>
+      {/* 右：需求3 — 该患者相关病史 */}
+      <aside className="w-72 shrink-0 border-l overflow-y-auto p-5"
+             style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+        <h3 className="text-sm font-medium mb-1" style={{ color: "var(--teal-900)" }}>相关病史</h3>
+        <p className="text-xs mb-4" style={{ color: "#9aa8a4" }}>{member.full_name} · 共 {records.length} 条</p>
+        {records.length === 0 ? (
+          <p className="text-xs" style={{ color: "#9aa8a4" }}>暂无历史记录</p>
+        ) : (
+          <div className="space-y-2.5">
+            {records.map(rec => (
+              <div key={rec.id} className="rounded-lg border p-2.5" style={{ borderColor: "var(--line)" }}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>
+                    {RECORD_TYPE_LABEL[rec.record_type] || rec.record_type}
+                  </span>
+                  <span className="text-xs" style={{ color: "#9aa8a4" }}>{rec.record_date}</span>
+                </div>
+                <p className="text-xs leading-relaxed" style={{ color: "var(--ink)" }}>
+                  {(rec.extracted_zh || "").slice(0, 90)}{(rec.extracted_zh || "").length > 90 ? "…" : ""}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </aside>
     </main>
   );
 
@@ -531,16 +717,23 @@ function App() {
       .finally(() => setLoading(false));
   }, [user]);
 
-  // 切换成员时拉记录
+  // 拉取（或强制刷新）某成员的记录
+  const fetchRecords = React.useCallback(async (memberId) => {
+    if (USE_MOCK || !memberId) return;
+    try {
+      const h = await authHeaders();
+      const r = await fetch(`${API_BASE}/members/${memberId}/records`, { headers: h });
+      const data = r.ok ? await r.json() : [];
+      setRecordsMap(prev => ({ ...prev, [memberId]: data }));
+    } catch {
+      setRecordsMap(prev => ({ ...prev, [memberId]: [] }));
+    }
+  }, []);
+
+  // 切换成员时按需拉记录（已缓存则跳过）
   useEffect(() => {
     if (USE_MOCK || !activeId || recordsMap[activeId] !== undefined) return;
-    authHeaders().then(h => fetch(`${API_BASE}/members/${activeId}/records`, { headers: h }))
-      .then(async r => {
-        if (!r.ok) return [];
-        return r.json();
-      })
-      .then(data => setRecordsMap(prev => ({ ...prev, [activeId]: data })))
-      .catch(() => setRecordsMap(prev => ({ ...prev, [activeId]: [] })));
+    fetchRecords(activeId);
   }, [activeId]);
 
   if (!oidcReady) return (
@@ -569,7 +762,8 @@ function App() {
             {loadErr}
           </div>
         )}
-        {active && <MemberDetail member={active} records={records} />}
+        {active && <MemberDetail member={active} records={records}
+                                 onRefreshRecords={() => fetchRecords(activeId)} />}
         {!active && !loadErr && (
           <div className="flex items-center justify-center h-full text-sm" style={{ color: "#7a8a86" }}>
             {members.length === 0 ? "暂无成员记录" : "请从左侧选择成员"}

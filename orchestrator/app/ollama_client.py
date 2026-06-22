@@ -5,13 +5,28 @@ import httpx
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://ollama:11434")
 
 
-async def generate(model: str, prompt: str, system: str | None = None, keep_alive: int | None = None) -> str:
-    """调用 Ollama 生成接口，返回完整文本。"""
+async def generate(
+    model: str,
+    prompt: str,
+    system: str | None = None,
+    keep_alive: int | None = None,
+    images: list[str] | None = None,
+    options: dict | None = None,
+) -> str:
+    """调用 Ollama 生成接口，返回完整文本。
+
+    images: base64 编码的图片列表（视觉模型如 glm-ocr 用）。
+    options: Ollama 推理参数（num_predict / temperature / stop 等）。
+    """
     payload = {"model": model, "prompt": prompt, "stream": False}
     if system:
         payload["system"] = system
     if keep_alive is not None:
         payload["keep_alive"] = keep_alive
+    if images:
+        payload["images"] = images
+    if options:
+        payload["options"] = options
     # 900s: meditron:70b (~40GB) may need to reload after gemma2 model swap
     async with httpx.AsyncClient(timeout=900.0) as client:
         resp = await client.post(f"{OLLAMA_HOST}/api/generate", json=payload)

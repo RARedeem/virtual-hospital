@@ -114,6 +114,29 @@ docker compose run --rm ingestion ingest \
 
 部署：作为静态文件由任意静态服务器托管（如 `python -m http.server 5500`），或后续接入 Caddy/Nginx。
 
+## 问诊交互（流程 A1 前端）
+
+v2 流程 A1 的交互式问诊，由 llama3.3:70b 接诊，前后端均已落地（2026-06-23）。
+
+流程：登录 → 直达「选择科室」（心血管/内分泌/泌尿/神经）→ 进入对话，首条为过渡说明
+（隐私/本地模型耗时/项目特点/即将进入诊室）→ AI 逐题问诊 → 完成生成症状包并归档。
+
+交互特性：
+- **选项卡**：AI 每个问题以可点选项卡呈现。单选即点即发；多选可勾多个后点「确定」。
+  首问（现有症状）强制多选；选项数不设上限；末尾「＋ 更多」可就同一问题动态追加更多选项。
+  始终保留自由文本输入兜底。
+- **报告上传**：问诊中可上传化验/检查/影像/处方报告（PDF/JPEG/PNG，可多选文件）。
+  后端 `POST /upload` → 存 MinIO(`health-reports`) → **glm-ocr** OCR 提取文字 →
+  建 `member_data.health_records`。上传不打断当前待选问题（已勾选项也保留）。
+- **病史侧栏**：对话右侧实时显示该成员的历史记录。
+- **症状包归档**：问诊结束，症状包打时间戳存为 `health_records(record_type='symptom_package')`，
+  侧栏即时可见。
+
+后端端点：`/interview/start`（带 member_id）、`/interview/chat`、`/interview/more`、`/upload`。
+
+> ⚠ 约束 A 红线：报告 OCR 用 glm-ocr（GLM=北京智谱，属约束 A 黑名单），**仅限此非评估的
+> 本地 OCR 预处理**，严禁接入 A1/A2/B 推理或翻译/检索任何评估环节。详见 `orchestrator/app/ocr.py`。
+
 ## 身份认证与授权
 
 认证由 Authentik（OIDC 身份提供方）负责，授权逻辑落在编排服务。
