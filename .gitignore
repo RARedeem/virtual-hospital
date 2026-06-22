@@ -13,3 +13,9 @@ backup/.restic-password
 sbx.txt
 claude-code-jetbrains-plugin-0.1.14-beta/
 claude-code-jetbrains-plugin-0.1.14-beta.zip
+
+# 与本项目无关的本地零散文件 (added 2026-06-23)
+mianhuangde_first_person.html
+纪念.html
+gemini.py
+gemini.sh

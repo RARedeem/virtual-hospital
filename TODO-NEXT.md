@@ -13,6 +13,35 @@
   中间 C 节"few-shot已完成"被 F/G 节推翻，最终 H 节简化prompt解决。终态见 H 节。
 - **EAU 知识库切片数**：**474**（Docling 重摄取后）。早期 314 为 pdftotext 旧值，作废。
 - **文档纪律**：今后重大状态变更，须回头改旧章节或更新本摘要，不可只追加。
+
+### ▶ 2026-06-23 对账校准（活动状态实测，优先级最高）
+对真实容器/库做了一次"文档 vs 实况"对账，以下以**实测**为准，覆盖早期章节：
+
+- **真实库命名（写脚本必看）**：DB 用户 `vhadmin`（非旧文档/sbx.txt 的 `yangrenming`），
+  库 `virtual_hospital`。表名为 `knowledge_base.guideline_sources`、
+  `knowledge_base.guideline_chunks`（外键 `source_id`，**无 citation_id 列**）、
+  独立 schema `rules.clinical_rules`、`member_data.members`（成员姓名列是 `full_name`，非 `name`）。
+  早期文档/sbx.txt 里的 `knowledge_base.sources`、`knowledge_base.rules`、`name` 均为**错误命名，作废**。
+- **血脂指南已摄取**：`ACC/AHA 2026 Dyslipidemia`（org=ACC/AHA，**435 切片**，未 deprecated）已入库。
+  下方 A3 的 `PENDING-LIPID` 占位**已不存在**，LDL 规则已对齐到真实来源。工作区两个血脂 PDF
+  （md5 相同，同一文件两命名）是已用完的摄取源，可归档/删除。
+- **甘油三酯规则已补**：`triglycerides_mmol_l → ACC/AHA 2026 Dyslipidemia` 已建（A3 末尾标的 gap 部分关闭）。
+  **同型半胱氨酸(homocysteine) 仍无确定性规则**（成员A该项 21.2 异常，目前仅 RAG 轨覆盖）——唯一剩口。
+- **当前规则×来源全貌（8 条，全对齐真实来源，无幽灵 id）**：
+  fasting_glucose/hba1c→ADA 2026；systolic/diastolic_bp→AHA/ACC 2017 HTN；
+  ldl/triglycerides→ACC/AHA 2026 Dyslipidemia。
+- **知识库切片实测**：ADA 2026=2663 / EAU 2026 LUTS=474 / ACC/AHA Dyslipidemia=435 /
+  AHA/ACC 2017 HTN=341 / MDS=60。
+- **文档溯源子系统未在本库落地**：commit 7d9ec78 称"5文件入库"，但实测 `doc_provenance` schema
+  **0 张表**。INDEX.md 的"待 Claude Code 落地"在本库**仍未完成**，commit message 高估了状态。
+- **v2 流程 A1（问诊）已部分落地**：`orchestrator/app/interviewer.py` 已存在并在 `main.py` 挂载
+  `/interview/start`、`/interview/chat` 端点。ARCHITECTURE.md 10.1 仍标"待实现"，已同步更正。
+- **约束 A 治理项（2026-06-23 已裁定：保留待用）**：vh-ollama 内存在 `glm-ocr`（GLM=北京智谱，
+  属约束 A 黑名单机构）。全代码/配置 grep **无任何引用**，故运行管道未违反约束 A。
+  用户裁定**保留待用**。⚠ 红线：约束 A 锁的是"全链路评估管道所用模型"——glm-ocr 仅可用于
+  **非评估链路**（如本地 OCR 预处理上传文件），**严禁接入 A1/A2/B 推理或翻译/检索任何评估环节**，
+  否则即违反约束 A。日后若 B4 文件上传 OCR 落地用到它，须在此明确记录其边界。
+- **Dify 无关声明**：宿主机另有 Dify 栈（`docker-*` 容器），与本项目相关度为 0，见 README 范围边界声明。
 ---
 
 # 后续清单（原始内容如下，部分早期结论已被上方摘要校准）

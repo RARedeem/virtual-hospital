@@ -295,7 +295,7 @@ AND c.section !~* '(reference|bibliography|acknowledg|abbreviation|
 | 序号 | 项目 | 说明 |
 |------|------|------|
 | 1 | G1 Meditron 结构化输出 | 方向 B：简化 prompt，验证"指令过载"假说 |
-| 2 | 流程 A1 问诊交互 | llama 交互式问诊 + 症状打包 |
+| 2 | 流程 A1 问诊交互 | **部分实现**（2026-06-23 实测）：`orchestrator/app/interviewer.py` 已落地，`main.py` 已挂 `/interview/start`、`/interview/chat`。待补：症状打包产出 → A2/B 消费、前端多轮界面（#6） |
 | 3 | 流程 A2 国内指南推理 | 国内指南摄取 + llama RAG 推理 |
 | 4 | 呈现层 | 并排模板、来源标注、声明条款 |
 | 5 | 前端自由文本输入 | 文本框 + 提交，方便测试 |
