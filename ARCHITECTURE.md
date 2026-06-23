@@ -3,8 +3,8 @@
 > 版本：v2.0（双盲交叉验证架构）
 > 前序：v1.0 为单流程翻译三明治管道，已验证跑通，作为流程 B 纳入本架构。
 > 日期：2026-06-14（状态末次同步 2026-06-23）
-> 状态：架构设计完成。流程 A1 问诊交互已实现（2026-06-23，见 §10.1）；
->       A2 国内指南推理、呈现层并排、A/B 双盲整合待实现。
+> 状态：架构设计完成。流程 A1 问诊、A2 国内指南推理、呈现层并排、**A/B 背靠背双盲整合
+>       均已实现**（2026-06-23，见 §10.1）。剩余为真实病例验证与调参。
 
 ---
 
@@ -34,9 +34,16 @@
 
 禁止：Qwen / DeepSeek / GLM / BGE 及其他中国大陆机构模型。
 
-> 例外（非评估链路）：`glm-ocr`（GLM=北京智谱）仅用于上传报告的**本地 OCR 预处理**，
+> 例外一（非评估链路）：`glm-ocr`（GLM=北京智谱）仅用于上传报告的**本地 OCR 预处理**，
 > 不属"全链路评估模型"，严禁接入 A1/A2/B 推理或翻译/检索任何评估环节（见 §10.1 落地说明、
 > `orchestrator/app/ocr.py`）。
+>
+> 例外二（流程 A 国内指南检索）：`bge-m3`（北京智源）作为**流程 A2 国内指南的向量检索模型**。
+> 用户作为约束制定者明确裁定破例，理由：当年换 nomic 的前提"管道 query/corpus 均为英文"在
+> 流程 A 不成立——A2 检索中文国内指南，英文向的 nomic 召回弱，bge-m3 中文语义向量显著更优。
+> **边界：仅限流程 A2 国内指南检索（domestic_kb）；流程 B 仍用 nomic、路线焊死不动；
+> 严禁把 bge-m3 接入翻译或流程 B 任何环节。** 见 `db/init/04_domestic_kb.sql`、
+> `orchestrator/app/pipeline.py` 的 `MODEL_EMBED_CN`。
 
 ### 约束 B：指南来源（分流程适用）
 - **流程 B**：锁死在国际权威指南（WHO / ADA / AHA / NICE / EAU / MDS）。
@@ -287,10 +294,12 @@ AND c.section !~* '(reference|bibliography|acknowledg|abbreviation|
 | EAU 2026 LUTS | EAU | 474 | ✓ Docling 重摄取，0 Preamble |
 | MDS | MDS | 60 | ✓ |
 
-### 9.4 待建知识库（国内指南，流程 A 用）
-需摄取国内权威指南，存入独立的知识库分区或用 source 标记区分。
-指南选取标准：国家级权威机构发布，循证等级高。
-具体指南清单待定。
+### 9.4 国内指南知识库（流程 A 用）【已建 2026-06-23】
+独立 schema `domestic_kb`（`guideline_sources_cn` / `guideline_chunks_cn`），与 `knowledge_base`
+（国际，流程 B）物理隔离、向量空间隔离（bge-m3 1024 维 vs nomic 768 维）。
+**不带 no_prc_source CHECK**——约束 B 分流程适用，流程 A 允许国内指南（见 §2、`db/init/04_domestic_kb.sql`）。
+摄取走 `ingestion` 的 `--scope domestic`（跳约束 B 校验、bge-m3 向量化）。
+已摄取：中国高血压防治指南2024、中国2型糖尿病防治指南2020（上/下）。
 
 ---
 
@@ -300,9 +309,9 @@ AND c.section !~* '(reference|bibliography|acknowledg|abbreviation|
 | 序号 | 项目 | 说明 |
 |------|------|------|
 | 1 | G1 Meditron 结构化输出 | 方向 B：简化 prompt，验证"指令过载"假说 |
-| 2 | 流程 A1 问诊交互 | **已实现**（2026-06-23）：llama3.3:70b 结构化问诊，选项卡（单/多选、首问强制多选、"＋更多"动态追加、不设上限）+ 自由文本兜底。端点 `/interview/start` `/interview/chat` `/interview/more`。症状包打时间戳归档为 health_records(`symptom_package`)。**待补**：症状包 → A2/B 消费 |
-| 3 | 流程 A2 国内指南推理 | 国内指南摄取 + llama RAG 推理 |
-| 4 | 呈现层 | 并排模板、来源标注、声明条款 |
+| 2 | 流程 A1 问诊交互 | **已实现**（2026-06-23）：llama3.3:70b 结构化问诊，选项卡（单/多选、首问强制多选、"＋更多"动态追加、不设上限）+ 自由文本兜底。端点 `/interview/start` `/interview/chat` `/interview/more`。症状包打时间戳归档为 health_records(`symptom_package`)，并已**喂入双盲评估**（见序号 3/4） |
+| 3 | 流程 A2 国内指南推理 | **已实现**（2026-06-23）：国内指南入 `domestic_kb`（bge-m3 检索，约束 A 例外）；`pipeline.reason_a2` llama3.3 中文原生推理，无翻译三明治，输出 3 段中文结论 |
+| 4 | 呈现层 + 双盲 | **已实现**（2026-06-23）：`pipeline.run_dual` 背靠背双盲（A2/B 只吃 A1 数据、互不见对方结论），`/assess` 并排返回两份结论；前端左 A 右 B 并排 + 确定性规则共同地基 + 声明一/二。一致性**不做相似度自动判定**（遵 §11 质疑6，判断权归人） |
 | 5 | 前端自由文本输入 | **已实现**：问诊对话界面带自由文本输入框 |
 | 6 | 前端问诊交互界面 | **已实现**（2026-06-23）：登录直达选科室→对话首条过渡说明→选项卡问诊→右侧病史侧栏→报告上传（多文件→MinIO+glm-ocr OCR 建档）。详见 README「问诊交互（流程 A1 前端）」 |
 

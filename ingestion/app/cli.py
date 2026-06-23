@@ -33,6 +33,7 @@ async def _run(args) -> None:
                 title=args.title,
                 citation_id=args.citation,
                 version_date=args.version,
+                scope=args.scope,
             )
         except ingest.SourceRejectedError as e:
             print(f"[拒绝] {e}", file=sys.stderr)
@@ -52,6 +53,10 @@ def main() -> None:
     ing.add_argument("--title", required=True, help="指南标题")
     ing.add_argument("--citation", required=True, help="引用标识，如 'NICE NG28'")
     ing.add_argument("--version", required=True, help="版本日期 YYYY-MM-DD")
+    ing.add_argument("--scope", default="international",
+                     choices=["international", "domestic"],
+                     help="international=国际指南→knowledge_base(nomic)；"
+                          "domestic=国内指南→domestic_kb(bge-m3，流程A，跳约束B校验)")
 
     args = p.parse_args()
     if args.cmd == "ingest":

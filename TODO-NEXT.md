@@ -28,6 +28,17 @@
 - **甘油三酯规则已补**：`triglycerides_mmol_l → ACC/AHA 2026 Dyslipidemia` 已建（A3 末尾标的 gap 部分关闭）。
   **同型半胱氨酸(homocysteine) 仍无确定性规则** → 见下方「I. 待办·挂起」。
 
+### ▶ 2026-06-23 双盲交叉验证全栈落地（v2 核心）
+- **流程 A2 已建**：`pipeline.reason_a2`（llama3.3:70b 中文原生，无翻译三明治）+ 国内指南库
+  `domestic_kb`（bge-m3 检索）。国内指南已摄取：高血压2024、糖尿病2020上/下。
+- **双盲编排 `pipeline.run_dual`**：A2 与 B 各自独立、只吃 A1 症状包+在档佐证，**B 输入不含 A2 结论**；
+  确定性规则两轨共享、单算一次。`/assess` 并排返回两份结论（留空 zh_data 自动取最新症状包——
+  **关闭了"症状包尚未喂 A2/B"的 gap**）。前端左 A 右 B 并排 + 声明一/二。
+- **约束 A 例外·bge-m3**：用户裁定为流程 A 破例（中文检索远强于 nomic）。边界焊死：仅流程 A2 国内指南检索，
+  流程 B 仍 nomic、meditron 路线不动。详见 README/ARCHITECTURE §2、记忆 [[dual-blind-a2]]。
+- **约束 B 分流程**：国内指南入 `domestic_kb`（无 no_prc_source CHECK），与 knowledge_base 物理+向量空间隔离。
+- 一致性不做相似度自动判定（遵质疑6，判断权归人）。流程 B 刚性路线（gemma4→meditron→gemma4）未动。
+
 ### ⏸ I. 待办·挂起（2026-06-23 立项，暂不推进）
 **同型半胱氨酸(homocysteine) 确定性规则缺失。** 成员A该项 21.2 μmol/L 异常，
 目前仅 RAG 轨覆盖，命中不保证。补齐需两步（受约束 B 限制）：

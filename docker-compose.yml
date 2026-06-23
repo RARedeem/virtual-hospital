@@ -1,7 +1,8 @@
 services:
   # ────────────────────────────────────────────────────────
   # Ollama — 本地模型推理引擎（双卡）
-  # 约束 A 合规模型：gemma2(谷歌) / meditron(EPFL) / nomic-embed(美)
+  # 约束 A 合规模型：gemma4(谷歌) / meditron(EPFL) / nomic-embed(美) / llama3.3(Meta，流程A)
+  # 约束 A 例外：bge-m3(北京智源) 仅限流程 A 国内指南检索，见 orchestrator 注释 / ARCHITECTURE §2
   # ────────────────────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
@@ -99,6 +100,11 @@ services:
       - MODEL_TRANSLATE_BACK=translator-en-zh
       - MODEL_REASONING=meditron:70b
       - MODEL_EMBED=nomic-embed-text:v1.5
+      # 流程 A2（双盲另一轨，与上面 B 路线并排、互不干涉）：
+      #   约束 A 例外——bge-m3(北京智源)仅限流程 A 国内指南检索；llama3.3 中文原生推理。
+      #   严禁把 bge-m3/llama3.3 接入翻译或流程 B 任何环节。见 ARCHITECTURE §2。
+      - MODEL_A2_REASONING=llama3.3:70b
+      - MODEL_EMBED_CN=bge-m3
       # 代理隔离：内部调用(ollama/postgres/minio/authentik)必须直连，绝不经本机 7890 代理
       - NO_PROXY=localhost,127.0.0.1,::1,ollama,postgres,minio,authentik-server,authentik-worker,authentik-redis
       - no_proxy=localhost,127.0.0.1,::1,ollama,postgres,minio,authentik-server,authentik-worker,authentik-redis
@@ -132,6 +138,7 @@ services:
       - OLLAMA_HOST=http://ollama:11434
       - PG_DSN=postgresql://${PG_USER:-yangrenming}:${PG_PASSWORD}@postgres:5432/${PG_DB:-virtual_hospital}
       - MODEL_EMBED=nomic-embed-text:v1.5
+      - MODEL_EMBED_CN=bge-m3        # 国内指南 scope=domestic 用（约束 A 例外，仅流程 A）
       - HF_ENDPOINT=https://hf-mirror.com
       # 代理隔离：ollama/postgres 内部调用直连；hf-mirror 等外网不在表内，仍按需直连(dns 已配)
       - NO_PROXY=localhost,127.0.0.1,::1,ollama,postgres,minio

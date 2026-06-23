@@ -38,9 +38,11 @@ async def embed(model: str, text: str) -> list[float]:
                 )
                 resp.raise_for_status()
                 emb = resp.json().get("embedding") or []
-                if len(emb) == 768:
+                # 维度不在此硬编码（nomic=768 / bge-m3=1024）；只判非空，
+                # 具体维度由调用方 ingest.py 按 scope（embed_dim）校验。
+                if emb:
                     return emb
-                last_exc = RuntimeError(f"embedding 维度异常: {len(emb)}")
+                last_exc = RuntimeError("embedding 空响应")
             except Exception as e:
                 last_exc = e
     raise last_exc

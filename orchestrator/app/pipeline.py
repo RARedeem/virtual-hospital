@@ -20,6 +20,12 @@ MODEL_TRANSLATE_BACK = os.environ.get("MODEL_TRANSLATE_BACK", "translator-en-zh"
 MODEL_REASONING = os.environ.get("MODEL_REASONING", "reasoner-meditron")
 MODEL_EMBED = os.environ.get("MODEL_EMBED", "nomic-embed-text:v1.5")
 
+# ── 流程 A2（双盲另一轨）：llama 中文原生推理 + 国内指南 ──
+# 约束 A 例外：bge-m3（北京智源）仅用于流程 A 国内指南检索，严禁进入翻译/流程 B 任何环节。
+# 边界见 ARCHITECTURE §2 / db/init/04_domestic_kb.sql。
+MODEL_A2_REASONING = os.environ.get("MODEL_A2_REASONING", "llama3.3:70b")
+MODEL_EMBED_CN = os.environ.get("MODEL_EMBED_CN", "bge-m3")
+
 # RAG 上下文收敛（数据/检索层，非模型链）：喂给 meditron 的上下文过长会导致其
 # 生成失控/回吐（联调实测 ~1万字符 → >33min 超时）。聚焦少量短块，与历史验证场景的
 # 上下文量级一致，使 meditron 能消化并自然收尾。
@@ -136,7 +142,7 @@ async def translate_to_zh(en_report: str) -> str:
 
 async def run_pipeline(conn, zh_patient_data: str) -> dict:
     """
-    端到端双轨评估。
+    端到端双轨评估（单流程 = 流程 B）。
 
     轨道一（确定性）：抽取指标 → 规则引擎硬阈值判断
     轨道二（概率性）：向量检索指南 → Meditron 循证推理
@@ -167,4 +173,117 @@ async def run_pipeline(conn, zh_patient_data: str) -> dict:
         "cited_sources": [g["citation_id"] for g in guidelines],
         "findings_en": findings_en,
         "report_zh": report_zh,
+    }
+
+
+# ════════════════════════════════════════════════════════
+# 流程 A2（双盲另一轨）：llama 中文原生 + 国内指南 RAG
+# ════════════════════════════════════════════════════════
+
+async def retrieve_domestic_guidelines(conn, query_zh: str,
+                                       top_k: int = RETRIEVE_TOP_K) -> list[dict]:
+    """流程 A2 检索：bge-m3 向量化中文 query → 检索国内指南片段（domestic_kb，仅未废弃来源）。
+    约束 A 例外：bge-m3 仅在此（流程 A 国内指南检索）使用。"""
+    query_vec = await oc.embed(MODEL_EMBED_CN, query_zh)
+    rows = await conn.fetch(
+        """
+        SELECT c.chunk_text, c.section, s.citation_id, s.org
+        FROM domestic_kb.guideline_chunks_cn c
+        JOIN domestic_kb.guideline_sources_cn s ON c.source_id = s.id
+        WHERE s.is_deprecated = false
+          AND c.section !~* '(参考文献|致谢|缩略语|利益冲突|附录|声明)'
+        ORDER BY c.embedding <=> $1::vector
+        LIMIT $2
+        """,
+        str(query_vec), top_k,
+    )
+    return [dict(r) for r in rows]
+
+
+async def reason_a2(patient_zh: str, guidelines: list[dict]) -> str:
+    """流程 A2 推理：llama3.3 中文原生，chat 角色消息 + 中文 few-shot，输出 3 段中文结论。
+    无翻译三明治（中文 query / 中文国内指南 / 中文输出）。证据 top-k、每条截断。
+    （确定性规则作为独立轨在 merge 层与本结论并排呈现，不混入本提示，保持两轨对称、避免指令过载。）"""
+    evidence_str = "\n".join(
+        f"- [{g['citation_id']}] {g['chunk_text'][:CONTEXT_CHUNK_CHARS]}"
+        for g in guidelines
+    ) or "-（国内指南库暂无相关片段）"
+
+    sys_prompt = (
+        "你是一名循证医学专家。严格按示例输出 3 段式中文评估。"
+        "只评估患者病例中明确给出的发现，绝不臆造数值或指南内容。"
+    )
+    shot_user = (
+        "临床证据：\n"
+        "- 《中国高血压防治指南》：诊室血压 ≥140/90 mmHg 即诊断为高血压。\n"
+        "- 高危患者收缩压 ≥130 mmHg 即应启动药物治疗。\n\n"
+        "患者病例：患者静息血压 145/95 mmHg。\n\n评估："
+    )
+    shot_asst = (
+        "1. 临床印象：高血压（2 级）。\n"
+        "2. 指南符合情况：依据所给证据，患者血压（145/95）已达到《中国高血压防治指南》"
+        "的高血压诊断标准（≥140/90）。\n"
+        "3. 建议措施：启动降压药物治疗并安排随访。"
+    )
+    actual_user = (
+        f"临床证据：\n{evidence_str}\n\n"
+        f"患者病例：{patient_zh}\n\n评估："
+    )
+    messages = [
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": shot_user},
+        {"role": "assistant", "content": shot_asst},
+        {"role": "user", "content": actual_user},
+    ]
+    return await oc.chat(MODEL_A2_REASONING, messages, options=REASONING_OPTIONS)
+
+
+# ════════════════════════════════════════════════════════
+# 双盲编排 + 呈现层（纯代码）
+# ════════════════════════════════════════════════════════
+
+async def run_dual(conn, zh_patient_data: str) -> dict:
+    """
+    背靠背双盲评估（ARCHITECTURE §3）。同一份 A1 症状数据，A2 与 B 各自独立推理。
+
+    双盲保证：A2 与 B 都【只】消费 zh_patient_data（A1 症状 + 在档佐证），
+    互不传入对方的结论。确定性规则作为两轨共享的既定事实层，单算一次。
+
+    显存：依赖 OLLAMA_KEEP_ALIVE=0（ARCHITECTURE §6.1）自动串行换载；
+    顺序 A2(llama+bge-m3) → B(gemma4+meditron+nomic)，与 §6.2 一致。
+    流程 B 路线（gemma4→nomic检索→meditron→gemma4）原样不动，仅与 A2 并排编排。
+    """
+    # 共享确定性层（规则只算一次；需英文指标抽取，复用 B 的翻译产物）
+    translated_en = await translate_to_en(zh_patient_data)
+    metrics = await extractor.extract_metrics(translated_en)
+    active_rules = await fetch_active_rules(conn)
+    rule_hits = rules_engine.evaluate_rules(metrics, active_rules)
+    rule_hits_dicts = [
+        {"metric": h.metric, "value": h.value, "conclusion": h.conclusion,
+         "citation_id": h.citation_id, "severity": h.severity}
+        for h in rule_hits
+    ]
+
+    # 流程 A2：国内指南 + llama 中文推理
+    a_guidelines = await retrieve_domestic_guidelines(conn, zh_patient_data)
+    report_a_zh = await reason_a2(zh_patient_data, a_guidelines)
+    sources_a = [g["citation_id"] for g in a_guidelines]
+
+    # 流程 B：国际指南 + meditron（路线不动）
+    b_guidelines = await retrieve_guidelines(conn, translated_en)
+    findings_en = await reason(translated_en, b_guidelines, rule_hits)
+    report_b_zh = await translate_to_zh(findings_en)
+    sources_b = [g["citation_id"] for g in b_guidelines]
+
+    return {
+        "translated_en": translated_en,
+        "extracted_metrics": metrics,
+        "rule_hits": rule_hits_dicts,        # 两轨共享的确定性既定事实层
+        "report_a_zh": report_a_zh,          # 流程 A（国内指南·llama）
+        "sources_a": sources_a,
+        "report_b_zh": report_b_zh,          # 流程 B（国际指南·meditron）
+        "sources_b": sources_b,
+        "findings_en": findings_en,          # B 的英文中间结果（审计溯源）
+        "a_model": MODEL_A2_REASONING,
+        "b_model": MODEL_REASONING,
     }

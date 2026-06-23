@@ -43,7 +43,7 @@ app.add_middleware(
 class AssessRequest(BaseModel):
     member_id: str
     record_id: str | None = None
-    zh_data: str          # 会员中文健康数据
+    zh_data: str | None = None   # 中文健康数据；留空则取该成员最新症状包（含在档佐证）
 
 
 class InterviewStartRequest(BaseModel):
@@ -56,10 +56,13 @@ class InterviewChatRequest(BaseModel):
 
 
 class AssessResponse(BaseModel):
-    report_zh: str
-    risk_sources: list[str]
-    findings_en: str       # 英文中间结果，供前端折叠展示/审计
-    rule_hits: list[dict]  # 确定性规则命中（双轨之一）
+    # 双盲并排：流程 A（国内指南·llama）与流程 B（国际指南·meditron）各自独立结论
+    report_a_zh: str       # 流程 A 中文结论
+    sources_a: list[str]   # 流程 A 引用的国内指南
+    report_zh: str         # 流程 B 中文结论（沿用原字段名，向后兼容）
+    risk_sources: list[str]  # 流程 B 引用的国际指南（沿用原字段名）
+    findings_en: str       # 流程 B 英文中间结果，供前端折叠展示/审计
+    rule_hits: list[dict]  # 两轨共享的确定性规则命中（双盲共同地基）
     metrics: dict          # 抽取的结构化指标
 
 
@@ -325,33 +328,59 @@ async def upload_report(
 @app.post("/assess", response_model=AssessResponse)
 async def assess(req: AssessRequest,
                  principal: Principal = Depends(auth.get_principal)):
-    """执行评估管道并落库。受分级授权保护。"""
+    """执行双盲评估（流程 A2 国内指南 + 流程 B 国际指南，并排）并落库。受分级授权保护。"""
     # 授权校验：member 不得评估他人档案
     auth.authorize_member_access(principal, req.member_id)
     await auth.log_access(principal, "run_assessment", req.member_id)
     try:
         async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
+            # 患者数据：显式 zh_data 优先；否则取该成员最新症状包（已含主治清洗后的在档佐证）
+            patient_zh = (req.zh_data or "").strip()
+            if not patient_zh:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        SELECT extracted_zh FROM member_data.health_records
+                        WHERE member_id = %s AND record_type = 'symptom_package'
+                          AND extracted_zh IS NOT NULL AND btrim(extracted_zh) <> ''
+                        ORDER BY created_at DESC LIMIT 1
+                        """,
+                        (req.member_id,),
+                    )
+                    row = await cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=400,
+                                        detail="无可评估数据：请提供 zh_data 或先完成一次问诊生成症状包")
+                patient_zh = row[0]
+
             # psycopg3 fetch 封装（简化版，生产可换 asyncpg）
-            result = await pipeline.run_pipeline(_ConnAdapter(conn), req.zh_data)
+            result = await pipeline.run_dual(_ConnAdapter(conn), patient_zh)
             async with conn.cursor() as cur:
                 await cur.execute(
                     """
                     INSERT INTO member_data.assessments
-                        (member_id, record_id, findings_en, report_zh, cited_sources, reasoner_model)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                        (member_id, record_id, findings_en, report_zh, cited_sources, reasoner_model,
+                         flow_a_zh, flow_a_sources, flow_a_model)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (req.member_id, req.record_id, result["findings_en"],
-                     result["report_zh"], psycopg.types.json.Json(result["cited_sources"]),
-                     os.environ.get("MODEL_REASONING", "reasoner-meditron")),
+                     result["report_b_zh"], psycopg.types.json.Json(result["sources_b"]),
+                     result["b_model"],
+                     result["report_a_zh"], psycopg.types.json.Json(result["sources_a"]),
+                     result["a_model"]),
                 )
                 await conn.commit()
         return AssessResponse(
-            report_zh=result["report_zh"],
-            risk_sources=result["cited_sources"],
+            report_a_zh=result["report_a_zh"],
+            sources_a=result["sources_a"],
+            report_zh=result["report_b_zh"],
+            risk_sources=result["sources_b"],
             findings_en=result["findings_en"],
             rule_hits=result["rule_hits"],
             metrics=result["extracted_metrics"],
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
