@@ -17,6 +17,9 @@ services:
       - OLLAMA_KEEP_ALIVE=0          # 用完立即释放显存，多模型串行管道必需
       - OLLAMA_MAX_LOADED_MODELS=2
       - OLLAMA_NUM_PARALLEL=1
+      # 代理隔离：本机走 7890 代理，但本栈"数据不出家门"，容器内部调用必须直连、绝不经代理。
+      - NO_PROXY=localhost,127.0.0.1,::1,ollama,postgres,minio,authentik-server,authentik-worker,authentik-redis
+      - no_proxy=localhost,127.0.0.1,::1,ollama,postgres,minio,authentik-server,authentik-worker,authentik-redis
     deploy:
       resources:
         reservations:
@@ -96,6 +99,9 @@ services:
       - MODEL_TRANSLATE_BACK=translator-en-zh
       - MODEL_REASONING=meditron:70b
       - MODEL_EMBED=nomic-embed-text:v1.5
+      # 代理隔离：内部调用(ollama/postgres/minio/authentik)必须直连，绝不经本机 7890 代理
+      - NO_PROXY=localhost,127.0.0.1,::1,ollama,postgres,minio,authentik-server,authentik-worker,authentik-redis
+      - no_proxy=localhost,127.0.0.1,::1,ollama,postgres,minio,authentik-server,authentik-worker,authentik-redis
       - OIDC_ISSUER=${OIDC_ISSUER:-http://authentik-server:9000/application/o/virtual-hospital/}
       - OIDC_JWKS_URL=${OIDC_JWKS_URL:-http://authentik-server:9000/application/o/virtual-hospital/jwks/}
       - OIDC_AUDIENCE=${OIDC_AUDIENCE:-virtual-hospital}
@@ -127,6 +133,9 @@ services:
       - PG_DSN=postgresql://${PG_USER:-yangrenming}:${PG_PASSWORD}@postgres:5432/${PG_DB:-virtual_hospital}
       - MODEL_EMBED=nomic-embed-text:v1.5
       - HF_ENDPOINT=https://hf-mirror.com
+      # 代理隔离：ollama/postgres 内部调用直连；hf-mirror 等外网不在表内，仍按需直连(dns 已配)
+      - NO_PROXY=localhost,127.0.0.1,::1,ollama,postgres,minio
+      - no_proxy=localhost,127.0.0.1,::1,ollama,postgres,minio
     volumes:
       - ./guidelines:/data:ro          # 将待摄取 PDF 放入 ./guidelines
     depends_on:

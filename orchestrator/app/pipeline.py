@@ -20,6 +20,15 @@ MODEL_TRANSLATE_BACK = os.environ.get("MODEL_TRANSLATE_BACK", "translator-en-zh"
 MODEL_REASONING = os.environ.get("MODEL_REASONING", "reasoner-meditron")
 MODEL_EMBED = os.environ.get("MODEL_EMBED", "nomic-embed-text:v1.5")
 
+# RAG 上下文收敛（数据/检索层，非模型链）：喂给 meditron 的上下文过长会导致其
+# 生成失控/回吐（联调实测 ~1万字符 → >33min 超时）。聚焦少量短块，与历史验证场景的
+# 上下文量级一致，使 meditron 能消化并自然收尾。
+RETRIEVE_TOP_K = 3
+CONTEXT_CHUNK_CHARS = 250   # 仿已验证的 ebm-ai-pipeline：每条证据截断 250 字符，聚焦阈值
+
+# 推理参数（仿生产）：温度 0、输出上限 1024，确定且有界
+REASONING_OPTIONS = {"temperature": 0.0, "num_predict": 1024}
+
 # 中英医学术语对照表，作为翻译提示补充
 _TERMS_PATH = Path("/app/terminology/medical_terms.json")
 _TERMS = json.loads(_TERMS_PATH.read_text(encoding="utf-8")) if _TERMS_PATH.exists() else {}
@@ -39,7 +48,7 @@ async def translate_to_en(zh_text: str) -> str:
     return await oc.generate(MODEL_TRANSLATE, prompt)
 
 
-async def retrieve_guidelines(conn, query_en: str, top_k: int = 5) -> list[dict]:
+async def retrieve_guidelines(conn, query_en: str, top_k: int = RETRIEVE_TOP_K) -> list[dict]:
     """步骤 2：向量检索相关国际指南片段（仅未废弃来源）。"""
     query_vec = await oc.embed(MODEL_EMBED, query_en)
     rows = await conn.fetch(
@@ -76,67 +85,48 @@ async def reason(patient_en: str, guidelines: list[dict],
                  rule_hits: list) -> str:
     """
     步骤 3：Meditron 循证推理。
-    双轨融合：规则引擎的确定性命中作为既定事实注入，
-    Meditron 在此基础上做循证解释，不得推翻硬阈值结论。
+
+    底层逻辑借鉴已验证无数次的 ebm-ai-pipeline：用 chat 角色消息
+    (system + few-shot 的 user/assistant + 实际 user)，meditron 才以"助手应答"姿态
+    输出 3 段结构化评估，而非把裸 prompt 当文本续写(回显)。证据 top3、每条截断 250 字符。
+    （规则引擎的确定性命中作为独立轨在 run_pipeline 层呈现，不混入本提示，避免指令过载。）
     """
-    context = "\n\n".join(
-        f"[{g['citation_id']}] ({g['org']}, {g['section']})\n{g['chunk_text']}"
+    evidence_str = "\n".join(
+        f"- [{g['citation_id']}] {g['chunk_text'][:CONTEXT_CHUNK_CHARS]}"
         for g in guidelines
     )
-    # 规则命中作为确定性事实前置
-    rules_block = ""
-    if rule_hits:
-        rules_block = "DETERMINISTIC RULE FINDINGS (established facts, do not contradict):\n" + "\n".join(
-            f"- {h.metric} = {h.value}: {h.conclusion} "
-            f"[{h.citation_id or 'rule'}] severity={h.severity or 'n/a'}"
-            for h in rule_hits
-        ) + "\n\n"
 
-    few_shot = (
-        "=== FORMAT EXAMPLE ONLY - NOT REAL PATIENT DATA ===\n"
-        "EXAMPLE\n"
-        "GUIDELINE CONTEXT: [EAU LUTS] Prostate volume >30 mL indicates "
-        "benign prostatic enlargement. For men in their 60s, PSA >2.0 ng/mL "
-        "predicts volume >40 mL.\n"
-        "PATIENT DATA: Prostate volume 40.8 mL, BPH confirmed by ultrasound. "
-        "IPSS 12 (moderate). Nocturia 2-3x/night.\n"
-        "ASSESSMENT:\n"
-        "1. FINDING: Prostate volume 40.8 mL with confirmed BPH and moderate "
-        "LUTS (IPSS 12).\n"
-        "2. GUIDELINE: Per EAU LUTS, volume >30 mL confirms benign enlargement; "
-        "40.8 mL exceeds the 40 mL threshold where PSA >2.0 ng/mL is "
-        "predictive in men in their 60s. IPSS 8-19 indicates moderate "
-        "symptoms warranting active treatment consideration.\n"
-        "3. CONCLUSION: This patient's prostate volume and symptom score both "
-        "support initiating pharmacological treatment per EAU guidelines, "
-        "typically alpha-blockers or 5-alpha reductase inhibitors for "
-        "volume >40 mL.\n"
-        "END EXAMPLE\n"
-        "=== END OF EXAMPLE. NOW ASSESS THE ACTUAL PATIENT BELOW ===\n"
-        "=== DO NOT USE ANY DATA FROM THE EXAMPLE ABOVE ===\n\n"
+    sys_prompt = (
+        "You are an Evidence-Based Medicine Expert. You must strictly output the "
+        "3-part structured assessment as shown in the example. Assess ONLY findings "
+        "explicitly present in the patient case; never invent values or guideline content."
+    )
+    shot_user = (
+        "CLINICAL EVIDENCE:\n"
+        "- Stage 2 Hypertension is defined as BP >= 140/90.\n"
+        "- If BP >= 130/80 and high CVD risk, start medication.\n\n"
+        "PATIENT CASE: The patient has a resting blood pressure of 145/95 mmHg.\n\n"
+        "ASSESSMENT:"
+    )
+    shot_asst = (
+        "1. CLINICAL IMPRESSION: Stage 2 Hypertension.\n"
+        "2. GUIDELINE ALIGNMENT: Based on the provided evidence, the patient's BP "
+        "(145/95) strictly meets the criteria for Stage 2 Hypertension (>= 140/90).\n"
+        "3. RECOMMENDED ACTION: Initiate pharmacological treatment and schedule a follow-up."
+    )
+    actual_user = (
+        f"CLINICAL EVIDENCE:\n{evidence_str}\n\n"
+        f"PATIENT CASE: {patient_en}\n\n"
+        "ASSESSMENT:"
     )
 
-    critical_rules = (
-        "CRITICAL RULES:\n"
-        "- Assess ONLY findings explicitly present in PATIENT DATA below.\n"
-        "- Do NOT introduce any measurement not in PATIENT DATA "
-        "(e.g. if bladder wall thickness is absent, never mention it).\n"
-        "- NEVER output placeholders like [value] or [数值].\n"
-        "- Structure your response as:\n"
-        "  1. FINDING: restate the specific patient finding\n"
-        "  2. GUIDELINE: what the cited guideline says about this finding\n"
-        "  3. CONCLUSION: what this means for this patient specifically\n\n"
-    )
-
-    prompt = (
-        f"GUIDELINE CONTEXT:\n{context}\n\n"
-        f"PATIENT DATA:\n{patient_en}\n\n"
-        f"Based on the guideline context below, assess this patient's findings. "
-        f"Cite specific thresholds or recommendations from the guideline. "
-        f"Be concise and specific to this patient's actual data. "
-        f"Do not mention any findings not present in the patient data."
-    )
-    return await oc.generate(MODEL_REASONING, prompt)
+    messages = [
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": shot_user},
+        {"role": "assistant", "content": shot_asst},
+        {"role": "user", "content": actual_user},
+    ]
+    return await oc.chat(MODEL_REASONING, messages, options=REASONING_OPTIONS)
 
 
 async def translate_to_zh(en_report: str) -> str:

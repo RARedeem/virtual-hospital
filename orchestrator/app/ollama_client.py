@@ -41,6 +41,31 @@ async def generate(
         return response
 
 
+async def chat(model: str, messages: list[dict], options: dict | None = None,
+               keep_alive: int | None = None) -> str:
+    """调用 Ollama /api/chat（多轮消息）。
+
+    借鉴已验证的 ebm-ai-pipeline：meditron 用 chat 角色消息(system/user/assistant)
+    + few-shot 才以"助手应答"姿态输出结构化评估，而非把裸 prompt 当文本续写(回显)。
+    """
+    payload = {"model": model, "messages": messages, "stream": False}
+    if options:
+        payload["options"] = options
+    if keep_alive is not None:
+        payload["keep_alive"] = keep_alive
+    async with httpx.AsyncClient(timeout=900.0) as client:
+        resp = await client.post(f"{OLLAMA_HOST}/api/chat", json=payload)
+        resp.raise_for_status()
+        content = resp.json().get("message", {}).get("content", "").strip()
+        if not content:
+            resp2 = await client.post(f"{OLLAMA_HOST}/api/chat", json=payload)
+            resp2.raise_for_status()
+            content = resp2.json().get("message", {}).get("content", "").strip()
+            if not content:
+                raise RuntimeError(f"model {model!r} returned empty chat response after retry")
+        return content
+
+
 async def embed(model: str, text: str) -> list[float]:
     """生成文本向量。"""
     async with httpx.AsyncClient(timeout=120.0) as client:
