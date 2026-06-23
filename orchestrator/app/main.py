@@ -91,8 +91,44 @@ def _package_to_zh(pkg: dict) -> str:
     return "\n".join(lines)
 
 
+# 在档佐证料聚合：把成员既往报告并入症状包，使评估有全局依据、更权威。
+# 限量 + 每条截断：避免把 meditron 的患者上下文撑回失控量级。
+EVIDENCE_TYPE_LABEL = {
+    "lab_report": "检验报告", "imaging": "影像", "checkup": "体检报告", "prescription": "处方",
+}
+EVIDENCE_MAX_RECORDS = 6
+EVIDENCE_CHARS_PER_RECORD = 350
+
+
+async def _gather_member_evidence(conn, member_id: str) -> str:
+    """汇集该成员在档的报告类记录（非症状包）作为佐证料，压缩空白、限量截断。"""
+    async with conn.cursor() as cur:
+        await cur.execute(
+            """
+            SELECT record_type, source_org, record_date, extracted_zh
+            FROM member_data.health_records
+            WHERE member_id = %s AND record_type <> 'symptom_package'
+              AND extracted_zh IS NOT NULL AND btrim(extracted_zh) <> ''
+            ORDER BY record_date DESC NULLS LAST, created_at DESC
+            LIMIT %s
+            """,
+            (member_id, EVIDENCE_MAX_RECORDS),
+        )
+        rows = await cur.fetchall()
+    parts = []
+    for rt, org, rdate, zh in rows:
+        label = EVIDENCE_TYPE_LABEL.get(rt, rt)
+        compact = " ".join(zh.split())[:EVIDENCE_CHARS_PER_RECORD]
+        parts.append(f"- [{label} · {rdate} · {org or '—'}] {compact}")
+    return "\n".join(parts)
+
+
 async def _archive_symptom_package(conn, member_id: str, pkg: dict) -> str:
-    """需求4：症状包打时间戳，作为一条新 health_records 归档，返回记录 id。"""
+    """需求4：症状包打时间戳归档，并并入在档佐证料（既往报告），返回记录 id。"""
+    body = _package_to_zh(pkg)
+    evidence = await _gather_member_evidence(conn, member_id)
+    if evidence:
+        body += "\n\n【在档佐证料（既往报告，供评估参考）】\n" + evidence
     async with conn.cursor() as cur:
         await cur.execute(
             """
@@ -101,7 +137,7 @@ async def _archive_symptom_package(conn, member_id: str, pkg: dict) -> str:
             VALUES (%s, 'symptom_package', 'AI问诊', %s, %s)
             RETURNING id
             """,
-            (member_id, date.today(), _package_to_zh(pkg)),
+            (member_id, date.today(), body),
         )
         rec_id = (await cur.fetchone())[0]
         await conn.commit()
