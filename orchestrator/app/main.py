@@ -397,10 +397,9 @@ async def edit_symptom_package(package_id: str,
                 auth.authorize_member_access(principal, member_id)
 
                 # 解析旧症状包 JSON（简单实现：假设 extracted_zh 包含行式键值对，可改为真正 JSON）
-                import json
                 try:
                     pkg = json.loads(old_zh) if old_zh.startswith('{') else _parse_package_text(old_zh)
-                except:
+                except (ValueError, TypeError, AttributeError):
                     pkg = {}
 
                 # 更新非空字段
