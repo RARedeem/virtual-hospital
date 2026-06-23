@@ -1,8 +1,14 @@
 # 文档溯源子系统 — 交付索引（INDEX）
 
-> 版本：v1.0 ｜ 日期：2026-06-16 ｜ 状态：代码 + 文档完成，待 Claude Code 落地
+> 版本：v1.0 ｜ 日期：2026-06-16 ｜ 状态：设计文档完成，**实现未在本库落地**（核对于 2026-06-23）
 > 定位：本文件是**文档溯源子系统**整套交付物的入口。
 >       它是虚拟医院项目的一个支撑子系统，非主线。主线入口仍是项目根的 README.md / HANDOFF.md。
+
+> **落地状态核对（2026-06-23）**：本库现存的只有 4 个设计文档（ARCHITECTURE-PROVENANCE /
+> MODULE-DESIGN / DATA-INTERFACE-CONTRACT / 本 INDEX）+ SYSTEM-TOPOLOGY.html。
+> 第一节目录树中的 `provenance/*.py`、`db/03_provenance_schema.sql` 在本库**不存在**，
+> `doc_provenance` schema **0 张表**。故下方第五节"6 个代码文件静态校验通过"反映的是设计阶段的
+> 历史结论，**本库尚未落地**。以 TODO-NEXT.md「★ 权威状态摘要」为准。
 
 文档溯源子系统解决一件事：对设计文档（ARCHITECTURE.md、声明条款等）做**段落级变更溯源**——
 每个文本单元可追溯修改史、修编人、版本号，并支持语义检索。
