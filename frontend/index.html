@@ -10,25 +10,40 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/oidc-client-ts@3/dist/browser/oidc-client-ts.min.js"></script>
 <style>
+  /* 深色主题（IDE 质感：深炭青底、克制强调色）。变量驱动，全站级联。
+     原浅色医用青绿值保留在 .theme-light 下，便于日后切回/做切换开关。 */
   :root {
-    --ink: #1a2b2b;
-    --teal-900: #0f3d3a;
-    --teal-700: #16615b;
-    --teal-500: #2a8f86;
-    --teal-100: #d8ece9;
-    --teal-50: #eef6f4;
-    --ochre: #9a4a2f;
-    --ochre-bg: #f5e6df;
-    --amber-700: #8a5a14;
-    --amber-bg: #f6ecd8;
-    --paper: #f8f9f7;
-    --card: #ffffff;
-    --line: #e2e8e5;
+    --ink: #d7e3df;
+    --teal-900: #c3ddd7;
+    --teal-700: #5fb6ab;
+    --teal-500: #34a99d;
+    --teal-100: #233330;
+    --teal-50: #151e1c;
+    --ochre: #e0916f;
+    --ochre-bg: #38231a;
+    --amber-700: #d6b057;
+    --amber-bg: #322915;
+    --paper: #0e1413;
+    --card: #1a2422;
+    --line: #2a3631;
+    --muted: #8ba29c;     /* 次要文字 */
+    --muted2: #93a59f;    /* 更淡的次要文字 */
+    --faint: #7d8f8a;     /* 审计 pre 等弱文字 */
+    --disc-bg: #29230f;   /* 声明框背景 */
+    --disc-line: #463c1f; /* 声明框边框 */
+    --disc-text: #cdb878; /* 声明框文字 */
+  }
+  .theme-light {
+    --ink: #1a2b2b; --teal-900: #0f3d3a; --teal-700: #16615b; --teal-500: #2a8f86;
+    --teal-100: #d8ece9; --teal-50: #eef6f4; --ochre: #9a4a2f; --ochre-bg: #f5e6df;
+    --amber-700: #8a5a14; --amber-bg: #f6ecd8; --paper: #f8f9f7; --card: #ffffff; --line: #e2e8e5;
+    --muted: #7a8a86; --muted2: #9aa8a4; --faint: #5a6a66;
+    --disc-bg: #fbf6ec; --disc-line: #e9dcc3; --disc-text: #8a7a55;
   }
   body { background: var(--paper); color: var(--ink); font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
   .serif { font-family: "Georgia", "Songti SC", serif; }
   ::-webkit-scrollbar { width: 8px; }
-  ::-webkit-scrollbar-thumb { background: #cdd8d4; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -172,7 +187,7 @@ function MemberSidebar({ members, activeId, onSelect }) {
                 <span className="font-medium text-sm" style={{ color: active ? "var(--teal-900)" : "var(--ink)" }}>{m.full_name}</span>
                 <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>{m.relation}</span>
               </div>
-              <div className="text-xs mt-0.5" style={{ color: "#7a8a86" }}>{age(m.birth_date)}</div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{age(m.birth_date)}</div>
             </button>
           );
         })}
@@ -191,7 +206,7 @@ function RecordCard({ rec, onAssess, assessing, onEdit }) {
           <span className="text-xs px-2 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>
             {RECORD_TYPE_LABEL[rec.record_type] || rec.record_type}
           </span>
-          <span className="text-xs ml-2" style={{ color: "#7a8a86" }}>{rec.record_date} · {rec.source_org}</span>
+          <span className="text-xs ml-2" style={{ color: "var(--muted)" }}>{rec.record_date} · {rec.source_org}</span>
         </div>
         <div className="flex gap-2">
           <button onClick={() => onAssess(rec)} disabled={assessing}
@@ -236,7 +251,7 @@ function FlowTrack({ label, sub, report_zh, sources }) {
       <div className="text-xs font-medium mb-2 flex items-center gap-1.5" style={{ color: "var(--teal-700)" }}>
         <span className="inline-block w-2 h-2 rounded-full border" style={{ borderColor: "var(--teal-500)" }}></span>
         {label}
-        <span className="font-normal" style={{ color: "#9aa8a4" }}>· {sub}</span>
+        <span className="font-normal" style={{ color: "var(--muted2)" }}>· {sub}</span>
       </div>
       <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--ink)" }}>{cleanInlineMath(report_zh)}</p>
       <div className="flex flex-wrap gap-1.5 mt-2">
@@ -254,7 +269,7 @@ function AssessmentResult({ result }) {
   return (
     <div className="mt-5 rounded-xl border p-5" style={{ borderColor: "var(--teal-100)", background: "var(--teal-50)" }}>
       <h3 className="serif text-lg mb-1" style={{ color: "var(--teal-900)" }}>评估报告</h3>
-      <p className="text-xs mb-4" style={{ color: "#9aa8a4" }}>背靠背双盲交叉验证 · 两轨独立推理、并排呈现，判断权归人</p>
+      <p className="text-xs mb-4" style={{ color: "var(--muted2)" }}>背靠背双盲交叉验证 · 两轨独立推理、并排呈现，判断权归人</p>
 
       {/* 确定性规则命中（双盲共同地基，置顶） */}
       {result.rule_hits.length > 0 && (
@@ -272,7 +287,7 @@ function AssessmentResult({ result }) {
                     <span className="font-medium">{h.conclusion}</span>
                     <span className="text-xs px-1.5 py-0.5 rounded shrink-0 ml-2" style={{ background: sev.bg, color: sev.fg }}>{sev.label}</span>
                   </div>
-                  <div className="text-xs mt-1" style={{ color: "#7a8a86" }}>
+                  <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>
                     {h.metric} = {h.value} · 来源 [{h.citation_id}]
                   </div>
                 </div>
@@ -293,11 +308,11 @@ function AssessmentResult({ result }) {
       {/* 英文中间结果折叠（流程 B 审计溯源） */}
       <details className="mt-2 mb-4">
         <summary className="text-xs cursor-pointer" style={{ color: "var(--teal-700)" }}>查看流程 B 英文推理过程（审计溯源）</summary>
-        <pre className="text-xs mt-2 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap" style={{ background: "var(--card)", color: "#5a6a66" }}>{result.findings_en}</pre>
+        <pre className="text-xs mt-2 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap" style={{ background: "var(--card)", color: "var(--faint)" }}>{result.findings_en}</pre>
       </details>
 
       {/* 声明条款（必须醒目展示） */}
-      <div className="text-xs leading-relaxed rounded-lg p-3 space-y-1.5" style={{ background: "#fbf6ec", border: "1px solid #e9dcc3", color: "#8a7a55" }}>
+      <div className="text-xs leading-relaxed rounded-lg p-3 space-y-1.5" style={{ background: "var(--disc-bg)", border: "1px solid var(--disc-line)", color: "var(--disc-text)" }}>
         <p>⚠ 声明一：{DISCLAIMER_1}</p>
         <p>⚠ 声明二：{DISCLAIMER_2}</p>
       </div>
@@ -403,7 +418,7 @@ function EditPackageModal({ pkg, allRecords, busy, onSave, onClose, memberId }) 
               style={{
                 padding: "0.5rem 1rem",
                 borderBottom: tab === t ? "2px solid var(--teal-500)" : "2px solid transparent",
-                color: tab === t ? "var(--teal-700)" : "#7a8a86",
+                color: tab === t ? "var(--teal-700)" : "var(--muted)",
                 background: "none",
                 border: "none",
                 cursor: "pointer",
@@ -444,7 +459,7 @@ function EditPackageModal({ pkg, allRecords, busy, onSave, onClose, memberId }) 
               <p className="text-xs font-medium mb-2" style={{ color: "var(--teal-700)" }}>可用文件</p>
               <div className="space-y-1 max-h-64 overflow-y-auto">
                 {availableRecords.length === 0 ? (
-                  <p className="text-xs" style={{ color: "#7a8a86" }}>暂无可用文件</p>
+                  <p className="text-xs" style={{ color: "var(--muted)" }}>暂无可用文件</p>
                 ) : (
                   availableRecords.map(r => (
                     <button key={r.id} onClick={() => setAttachedIds(prev => new Set([...prev, r.id]))}
@@ -460,7 +475,7 @@ function EditPackageModal({ pkg, allRecords, busy, onSave, onClose, memberId }) 
               <p className="text-xs font-medium mb-2" style={{ color: "var(--teal-700)" }}>已关联</p>
               <div className="space-y-1 max-h-64 overflow-y-auto">
                 {attachedIds.size === 0 ? (
-                  <p className="text-xs" style={{ color: "#7a8a86" }}>未关联任何文件</p>
+                  <p className="text-xs" style={{ color: "var(--muted)" }}>未关联任何文件</p>
                 ) : (
                   otherRecords.filter(r => attachedIds.has(r.id)).map(r => (
                     <button key={r.id} onClick={() => { const s = new Set(attachedIds); s.delete(r.id); setAttachedIds(s); }}
@@ -492,7 +507,7 @@ function EditPackageModal({ pkg, allRecords, busy, onSave, onClose, memberId }) 
                   {curatedFiles.map((f, i) => (
                     <div key={i} className="p-2 rounded border" style={{ borderColor: "var(--line)", background: "var(--paper)" }}>
                       <p className="text-xs font-medium mb-1">{f.file_name}</p>
-                      <p className="text-xs mb-2" style={{ color: "#5a6a66" }}>{f.curator_notes}</p>
+                      <p className="text-xs mb-2" style={{ color: "var(--faint)" }}>{f.curator_notes}</p>
                       <div className="flex gap-1">
                         <button onClick={() => handleReviewFile(i, true)} disabled={f.accepted !== null}
                           className="text-xs px-2 py-1 rounded transition-opacity disabled:opacity-50"
@@ -537,7 +552,7 @@ function UploadBar({ busy, onUpload }) {
   const fileRef = React.useRef(null);
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs shrink-0" style={{ color: "#7a8a86" }}>📎 提交报告</span>
+      <span className="text-xs shrink-0" style={{ color: "var(--muted)" }}>📎 提交报告</span>
       <select value={rtype} onChange={e => setRtype(e.target.value)} disabled={busy}
         className="text-xs rounded-lg px-2 py-1.5 border"
         style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--paper)" }}>
@@ -586,7 +601,7 @@ function OptionCards({ q, busy, onSubmit, onMore }) {
   const toggle = (o) => setSel(prev => prev.includes(o) ? prev.filter(x => x !== o) : [...prev, o]);
   return (
     <div className="mt-1">
-      <div className="text-xs mb-1.5" style={{ color: "#7a8a86" }}>可多选，选好后点"确定"</div>
+      <div className="text-xs mb-1.5" style={{ color: "var(--muted)" }}>可多选，选好后点"确定"</div>
       <div className="flex flex-wrap gap-2 mb-2">
         {q.options.map((opt, i) => {
           const on = sel.includes(opt);
@@ -774,7 +789,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
             style={{ borderColor: "var(--line)", background: "var(--card)" }}>
             <div className="text-3xl mb-3">{d.icon}</div>
             <div className="font-medium text-base mb-1" style={{ color: "var(--teal-900)" }}>{d.label}</div>
-            <div className="text-xs" style={{ color: "#7a8a86" }}>{d.desc}</div>
+            <div className="text-xs" style={{ color: "var(--muted)" }}>{d.desc}</div>
           </button>
         ))}
       </div>
@@ -809,7 +824,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
           ))}
           {busy && (
             <div className="flex justify-start">
-              <div className="rounded-2xl px-4 py-3 text-sm" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "#7a8a86" }}>
+              <div className="rounded-2xl px-4 py-3 text-sm" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--muted)" }}>
                 AI 正在回复…
               </div>
             </div>
@@ -853,9 +868,9 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
       <aside className="w-72 shrink-0 border-l overflow-y-auto p-5"
              style={{ borderColor: "var(--line)", background: "var(--card)" }}>
         <h3 className="text-sm font-medium mb-1" style={{ color: "var(--teal-900)" }}>相关病史</h3>
-        <p className="text-xs mb-4" style={{ color: "#9aa8a4" }}>{member.full_name} · 共 {records.length} 条</p>
+        <p className="text-xs mb-4" style={{ color: "var(--muted2)" }}>{member.full_name} · 共 {records.length} 条</p>
         {records.length === 0 ? (
-          <p className="text-xs" style={{ color: "#9aa8a4" }}>暂无历史记录</p>
+          <p className="text-xs" style={{ color: "var(--muted2)" }}>暂无历史记录</p>
         ) : (
           <div className="space-y-2.5">
             {records.map(rec => (
@@ -864,7 +879,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
                   <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>
                     {RECORD_TYPE_LABEL[rec.record_type] || rec.record_type}
                   </span>
-                  <span className="text-xs" style={{ color: "#9aa8a4" }}>{rec.record_date}</span>
+                  <span className="text-xs" style={{ color: "var(--muted2)" }}>{rec.record_date}</span>
                 </div>
                 <p className="text-xs leading-relaxed" style={{ color: "var(--ink)" }}>
                   {(rec.extracted_zh || "").slice(0, 90)}{(rec.extracted_zh || "").length > 90 ? "…" : ""}
@@ -883,7 +898,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
       <div className="flex items-baseline justify-between mb-1">
         <div className="flex items-baseline gap-3">
           <h2 className="serif text-2xl" style={{ color: "var(--teal-900)" }}>{member.full_name}</h2>
-          <span className="text-sm" style={{ color: "#7a8a86" }}>{member.relation} · {age(member.birth_date)}</span>
+          <span className="text-sm" style={{ color: "var(--muted)" }}>{member.relation} · {age(member.birth_date)}</span>
         </div>
         <button onClick={startInterview}
           className="text-sm px-4 py-1.5 rounded-lg font-medium"
@@ -891,12 +906,12 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
           + 开始问诊
         </button>
       </div>
-      <p className="text-sm mb-6" style={{ color: "#7a8a86" }}>健康记录 {records.length} 条</p>
+      <p className="text-sm mb-6" style={{ color: "var(--muted)" }}>健康记录 {records.length} 条</p>
 
       {records.length === 0 ? (
         <div className="rounded-xl border border-dashed p-10 text-center" style={{ borderColor: "var(--line)" }}>
-          <p className="text-sm" style={{ color: "#7a8a86" }}>暂无健康记录</p>
-          <p className="text-xs mt-1" style={{ color: "#9aa8a4" }}>上传检验报告、体检报告或处方后可运行评估</p>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>暂无健康记录</p>
+          <p className="text-xs mt-1" style={{ color: "var(--muted2)" }}>上传检验报告、体检报告或处方后可运行评估</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -925,7 +940,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
         />
       )}
 
-      <p className="text-xs mt-8 pt-4 border-t" style={{ borderColor: "var(--line)", color: "#9aa8a4" }}>
+      <p className="text-xs mt-8 pt-4 border-t" style={{ borderColor: "var(--line)", color: "var(--muted2)" }}>
         本系统为私人健康记录与评估辅助工具，输出不构成医疗诊断，不替代专业医疗。
       </p>
     </main>
@@ -937,7 +952,7 @@ function LoginGate() {
     <div className="flex min-h-screen items-center justify-center">
       <div className="text-center">
         <h1 className="serif text-2xl mb-2" style={{ color: "var(--teal-900)" }}>家族健康档案</h1>
-        <p className="text-sm mb-6" style={{ color: "#7a8a86" }}>本地私有 · 数据不出家门</p>
+        <p className="text-sm mb-6" style={{ color: "var(--muted)" }}>本地私有 · 数据不出家门</p>
         <button onClick={login} className="px-5 py-2.5 rounded-lg font-medium text-sm"
           style={{ background: "var(--teal-500)", color: "#fff" }}>登录</button>
       </div>
@@ -1109,7 +1124,7 @@ function App() {
                                  onEditPackage={handleEditPackage}
                                  onSavePackage={handleSavePackage} />}
         {!active && !loadErr && (
-          <div className="flex items-center justify-center h-full text-sm" style={{ color: "#7a8a86" }}>
+          <div className="flex items-center justify-center h-full text-sm" style={{ color: "var(--muted)" }}>
             {members.length === 0 ? "暂无成员记录" : "请从左侧选择成员"}
           </div>
         )}
