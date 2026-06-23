@@ -123,12 +123,13 @@ async def _gather_member_evidence(conn, member_id: str) -> str:
     return "\n".join(parts)
 
 
-async def _archive_symptom_package(conn, member_id: str, pkg: dict) -> str:
-    """需求4：症状包打时间戳归档，并并入在档佐证料（既往报告），返回记录 id。"""
+async def _archive_symptom_package(conn, member_id: str, pkg: dict,
+                                   evidence_text: str = "") -> str:
+    """需求4：症状包打时间戳归档，并入主治医师清洗后的在档佐证料，返回记录 id。"""
     body = _package_to_zh(pkg)
-    evidence = await _gather_member_evidence(conn, member_id)
-    if evidence:
-        body += "\n\n【在档佐证料（既往报告，供评估参考）】\n" + evidence
+    ev = (evidence_text or "").strip()
+    if ev and "无相关既往佐证" not in ev:
+        body += "\n\n【在档佐证料（主治医师筛选）】\n" + ev
     async with conn.cursor() as cur:
         await cur.execute(
             """
@@ -231,13 +232,21 @@ async def interview_chat(req: InterviewChatRequest,
     if not done:
         return _interview_response(payload, done)
 
-    # 问诊结束：症状包归档（需求4）
+    # 问诊结束：先由主治医师(llama3.3 仍温)清洗在档佐证料 → 释放显存 → 归档症状包（需求4）
     del INTERVIEW_SESSIONS[user_id]
     archived_id = None
     if iv.member_id:
         async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
-            archived_id = await _archive_symptom_package(conn, iv.member_id, payload)
+            raw_evidence = await _gather_member_evidence(conn, iv.member_id)
+            curated = ""
+            if raw_evidence.strip():
+                # llama3.3 仍驻留，顺手清洗，零额外冷加载
+                curated = await iv.curate_evidence(raw_evidence, payload.get("chief_complaint", ""))
+            await iv.release()      # 清洗完成，释放 llama3.3 显存（keep_alive=0）
+            archived_id = await _archive_symptom_package(conn, iv.member_id, payload, curated)
         await auth.log_access(principal, "archive_symptom_package", iv.member_id)
+    else:
+        await iv.release()
     return {"done": True, "symptom_package": payload, "archived_record_id": archived_id}
 
 

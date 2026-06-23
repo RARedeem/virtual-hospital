@@ -126,11 +126,8 @@ class MedicalInterviewer:
             parsed.pop("type", None)
             parsed["department"] = self.department
             parsed["collected_at"] = datetime.utcnow().isoformat() + "Z"
-            # 问诊结束，补发 keep_alive=0 立即释放 llama 显存，为评估管道腾空间
-            try:
-                await oc.generate(model=MODEL, prompt="unload", keep_alive=0)
-            except Exception:
-                pass
+            # 注意：此处不再 unload。主治医师(llama3.3)需在仍温时先清洗在档佐证料，
+            # 之后由调用方显式 release() 释放显存（见 main.py 问诊结束分支）。
             return parsed, True
 
         if parsed and parsed.get("type") == "question":
@@ -148,6 +145,34 @@ class MedicalInterviewer:
         self.current_question = response
         self.current_options = []
         return {"question": response, "options": [], "multi": False, "allow_free_text": True}, False
+
+    async def curate_evidence(self, raw_evidence: str, chief_complaint: str) -> str:
+        """主治医师(llama3.3，仍温)清洗在档报告：提炼与本次主诉相关的客观佐证，
+        剔除病人ID/检查号/设备参数/重复项/无关内容。供归档进症状包、再交评估。"""
+        system = (
+            "你是主治医师，正在转诊前整理病历。从【既往在档报告】中，只挑出与患者本次主诉"
+            "相关的【客观发现与关键数值】（如体积/大小/指标数值/明确诊断），剔除病人ID、检查号、"
+            "设备参数、机构抬头、重复项与无关内容。用简洁中文条列，每条标明来源类型与日期。"
+            "严禁臆测或新增报告中没有的信息。若无相关内容，只回复『无相关既往佐证』。"
+        )
+        user = (
+            f"本次主诉：{chief_complaint or '（未明确）'}\n\n"
+            f"【既往在档报告】\n{raw_evidence}\n\n相关客观佐证："
+        )
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": user}]
+        try:
+            out = await oc.chat(MODEL, messages, options={"temperature": 0.2, "num_predict": 600})
+            return out.strip()
+        except Exception:
+            return ""
+
+    async def release(self) -> None:
+        """释放 llama3.3 显存（keep_alive=0）。问诊+清洗完成后由调用方调用。"""
+        try:
+            await oc.generate(model=MODEL, prompt="unload", keep_alive=0)
+        except Exception:
+            pass
 
     async def more_options(self) -> list[str]:
         """需求：点"更多"时，为当前问题（主题不变）追加更多选项，不推进问诊。
