@@ -33,6 +33,27 @@ CREATE TABLE member_data.health_records (
     created_at   TIMESTAMPTZ DEFAULT now()
 );
 
+-- 症状包与佐证文件的关联表（需求：编辑页面追加/删除文件）
+CREATE TABLE member_data.package_evidence (
+    package_id   UUID REFERENCES member_data.health_records(id) ON DELETE CASCADE,
+    evidence_id  UUID REFERENCES member_data.health_records(id) ON DELETE CASCADE,
+    curator_notes TEXT,                -- llama3.3 清洗摘要或患者备注
+    created_at   TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (package_id, evidence_id)
+);
+
+-- 上传文件待审核表：上传后先由llama3.3清洗，患者决定accept/reject后才入package_evidence
+CREATE TABLE member_data.curation_review_pending (
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    upload_id    UUID NOT NULL,         -- 上传到 health_records 的 id
+    package_id   UUID REFERENCES member_data.health_records(id) ON DELETE CASCADE,
+    curator_notes TEXT NOT NULL,        -- llama3.3 清洗摘要
+    raw_extracted_zh TEXT,             -- 上传文件的原始OCR
+    accepted     BOOLEAN DEFAULT NULL,  -- NULL=待审 TRUE=接受 FALSE=拒绝
+    reviewed_at  TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE member_data.assessments (
     id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     member_id     UUID REFERENCES member_data.members(id) ON DELETE CASCADE,

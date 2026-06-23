@@ -35,7 +35,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000",
                    "http://localhost:5500", "http://127.0.0.1:5500"],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT"],
     allow_headers=["*"],
 )
 
@@ -367,6 +367,256 @@ class _ConnAdapter:
             await cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in await cur.fetchall()]
+
+# ── 症状包编辑端点（需求：用户可编辑症状包、附加文件、上传新文件） ──
+
+class EditPackageRequest(BaseModel):
+    chief_complaint: str | None = None
+    symptoms: str | None = None
+    history: str | None = None
+    medications: str | None = None
+    family_history: str | None = None
+
+@app.put("/symptom-packages/{package_id}")
+async def edit_symptom_package(package_id: str,
+                                req: EditPackageRequest,
+                                principal: Principal = Depends(auth.get_principal)):
+    """编辑症状包文本字段。需授权校验。"""
+    try:
+        async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
+            async with conn.cursor() as cur:
+                # 获取症状包所属的 member_id，进行权限校验
+                await cur.execute(
+                    "SELECT member_id, extracted_zh FROM member_data.health_records WHERE id=%s AND record_type='symptom_package'",
+                    (package_id,)
+                )
+                row = await cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="症状包不存在")
+                member_id, old_zh = row
+                auth.authorize_member_access(principal, member_id)
+
+                # 解析旧症状包 JSON（简单实现：假设 extracted_zh 包含行式键值对，可改为真正 JSON）
+                import json
+                try:
+                    pkg = json.loads(old_zh) if old_zh.startswith('{') else _parse_package_text(old_zh)
+                except:
+                    pkg = {}
+
+                # 更新非空字段
+                if req.chief_complaint is not None:
+                    pkg['chief_complaint'] = req.chief_complaint
+                if req.symptoms is not None:
+                    pkg['symptoms'] = req.symptoms
+                if req.history is not None:
+                    pkg['history'] = req.history
+                if req.medications is not None:
+                    pkg['medications'] = req.medications
+                if req.family_history is not None:
+                    pkg['family_history'] = req.family_history
+
+                new_zh = _package_to_zh_dict(pkg)
+                await cur.execute(
+                    "UPDATE member_data.health_records SET extracted_zh=%s WHERE id=%s",
+                    (new_zh, package_id)
+                )
+                await conn.commit()
+        await auth.log_access(principal, "edit_symptom_package", member_id)
+        return {"status": "ok", "package_id": package_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class EvidenceRequest(BaseModel):
+    evidence_ids: list[str]
+    action: str  # "add" or "remove"
+
+@app.post("/symptom-packages/{package_id}/evidence")
+async def manage_package_evidence(package_id: str,
+                                   req: EvidenceRequest,
+                                   principal: Principal = Depends(auth.get_principal)):
+    """关联/删除在档文件到症状包。"""
+    try:
+        async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
+            async with conn.cursor() as cur:
+                # 权限校验
+                await cur.execute(
+                    "SELECT member_id FROM member_data.health_records WHERE id=%s AND record_type='symptom_package'",
+                    (package_id,)
+                )
+                row = await cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="症状包不存在")
+                member_id = row[0]
+                auth.authorize_member_access(principal, member_id)
+
+                if req.action == "add":
+                    for eid in req.evidence_ids:
+                        await cur.execute(
+                            """INSERT INTO member_data.package_evidence (package_id, evidence_id)
+                               VALUES (%s, %s) ON CONFLICT DO NOTHING""",
+                            (package_id, eid)
+                        )
+                elif req.action == "remove":
+                    for eid in req.evidence_ids:
+                        await cur.execute(
+                            "DELETE FROM member_data.package_evidence WHERE package_id=%s AND evidence_id=%s",
+                            (package_id, eid)
+                        )
+                await conn.commit()
+        await auth.log_access(principal, "manage_package_evidence", member_id)
+        return {"status": "ok", "action": req.action, "count": len(req.evidence_ids)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/upload-for-curation")
+async def upload_for_curation(file: UploadFile = File(...),
+                               member_id: str = Form(...),
+                               record_type: str = Form("lab_report"),
+                               chief_complaint: str = Form(""),
+                               source_org: str | None = Form(None),
+                               principal: Principal = Depends(auth.get_principal)):
+    """上传报告并触发llama3.3清洗。返回清洗摘要供患者审核。"""
+    auth.authorize_member_access(principal, member_id)
+
+    try:
+        # 1. 文件上传 & OCR（复用既有逻辑）
+        data = await file.read()
+        raw_key = storage.put_report(member_id, file.filename or "report", data, file.content_type or "application/octet-stream")
+        try:
+            extracted = await ocr.extract_text(data, file.content_type or "application/octet-stream")
+            ocr_error = None
+        except Exception as _e:
+            extracted = ""
+            ocr_error = str(_e)
+
+        # 2. 入库 health_records
+        async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """INSERT INTO member_data.health_records
+                       (member_id, record_type, source_org, record_date, raw_file_key, extracted_zh)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id""",
+                    (member_id, record_type, source_org, date.today(), raw_key, extracted or None),
+                )
+                rec_id = str((await cur.fetchone())[0])
+                await conn.commit()
+
+        # 3. llama3.3 清洗（仅在有 OCR 结果时进行）
+        curator_notes = ""
+        if extracted:
+            iv = interviewer_module.MedicalInterviewer.__new__(interviewer_module.MedicalInterviewer)
+            curator_notes = await iv.curate_evidence(
+                f"[{EVIDENCE_TYPE_LABEL.get(record_type, record_type)} · {date.today()} · {source_org or '—'}]\n{extracted}",
+                chief_complaint or "（未明确）"
+            )
+
+        # 4. 存储待审核记录
+        async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """INSERT INTO member_data.curation_review_pending
+                       (upload_id, curator_notes, raw_extracted_zh)
+                    VALUES (%s, %s, %s)
+                    RETURNING id""",
+                    (rec_id, curator_notes, extracted)
+                )
+                pending_id = str((await cur.fetchone())[0])
+                await conn.commit()
+
+        await auth.log_access(principal, "upload_for_curation", member_id)
+        return {
+            "upload_id": rec_id,
+            "pending_id": pending_id,
+            "record_type": record_type,
+            "curator_notes": curator_notes,
+            "raw_extracted_zh": extracted,
+            "ocr_error": ocr_error,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CurationReviewRequest(BaseModel):
+    accepted: bool
+    package_id: str | None = None
+    curator_notes: str = ""
+
+@app.post("/curation-review/{upload_id}")
+async def review_curation(upload_id: str,
+                          req: CurationReviewRequest,
+                          principal: Principal = Depends(auth.get_principal)):
+    """患者审核清洗结果，确认accept/reject。可选关联到症状包。"""
+    try:
+        async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
+            async with conn.cursor() as cur:
+                # 获取上传记录的 member_id，权限校验
+                await cur.execute(
+                    "SELECT member_id FROM member_data.health_records WHERE id=%s",
+                    (upload_id,)
+                )
+                row = await cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="上传记录不存在")
+                member_id = row[0]
+                auth.authorize_member_access(principal, member_id)
+
+                # 更新待审核记录
+                await cur.execute(
+                    """UPDATE member_data.curation_review_pending
+                       SET accepted=%s, reviewed_at=now()
+                       WHERE upload_id=%s""",
+                    (req.accepted, upload_id)
+                )
+
+                # 若已接受且指定了 package_id，则关联到症状包
+                if req.accepted and req.package_id:
+                    await cur.execute(
+                        """INSERT INTO member_data.package_evidence (package_id, evidence_id, curator_notes)
+                           VALUES (%s, %s, %s)
+                           ON CONFLICT (package_id, evidence_id) DO UPDATE SET curator_notes=%s""",
+                        (req.package_id, upload_id, req.curator_notes, req.curator_notes)
+                    )
+
+                await conn.commit()
+        await auth.log_access(principal, "review_curation", member_id)
+        return {"status": "ok", "accepted": req.accepted, "upload_id": upload_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _parse_package_text(text: str) -> dict:
+    """从行式文本解析症状包（备用方案）。"""
+    pkg = {}
+    for line in (text or "").split("\n"):
+        if line.startswith("主诉："):
+            pkg["chief_complaint"] = line[3:].strip()
+        elif line.startswith("症状："):
+            pkg["symptoms"] = line[3:].strip()
+        elif line.startswith("既往史："):
+            pkg["history"] = line[4:].strip()
+        elif line.startswith("用药："):
+            pkg["medications"] = line[3:].strip()
+        elif line.startswith("家族史："):
+            pkg["family_history"] = line[4:].strip()
+    return pkg
+
+def _package_to_zh_dict(pkg: dict) -> str:
+    """症状包字典转中文摘要。"""
+    lines = []
+    for key, label in _PKG_LABELS:
+        val = pkg.get(key, "").strip()
+        if val:
+            lines.append(f"{label}：{val}")
+    return "\n".join(lines)
 
 from app.progress_router import router as progress_router
 app.include_router(progress_router)

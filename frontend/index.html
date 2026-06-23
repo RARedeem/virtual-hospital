@@ -180,7 +180,8 @@ function MemberSidebar({ members, activeId, onSelect }) {
 }
 
 // ── 健康记录卡片 ──
-function RecordCard({ rec, onAssess, assessing }) {
+function RecordCard({ rec, onAssess, assessing, onEdit }) {
+  const isSymptomPackage = rec.record_type === 'symptom_package';
   return (
     <div className="rounded-xl border p-4" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
       <div className="flex items-start justify-between">
@@ -190,15 +191,36 @@ function RecordCard({ rec, onAssess, assessing }) {
           </span>
           <span className="text-xs ml-2" style={{ color: "#7a8a86" }}>{rec.record_date} · {rec.source_org}</span>
         </div>
-        <button onClick={() => onAssess(rec)} disabled={assessing}
-          className="text-xs px-3 py-1.5 rounded-lg font-medium transition-opacity disabled:opacity-50"
-          style={{ background: "var(--teal-500)", color: "#fff" }}>
-          {assessing ? "评估中…" : "运行评估"}
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => onAssess(rec)} disabled={assessing}
+            className="text-xs px-3 py-1.5 rounded-lg font-medium transition-opacity disabled:opacity-50"
+            style={{ background: "var(--teal-500)", color: "#fff" }}>
+            {assessing ? "评估中…" : "运行评估"}
+          </button>
+          {isSymptomPackage && (
+            <button onClick={() => onEdit(rec)} disabled={assessing}
+              className="text-xs px-3 py-1.5 rounded-lg font-medium transition-opacity disabled:opacity-50"
+              style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>
+              编辑
+            </button>
+          )}
+        </div>
       </div>
       <p className="text-sm mt-3 leading-relaxed" style={{ color: "var(--ink)" }}>{rec.extracted_zh}</p>
     </div>
   );
+}
+
+// 轻量清洗 LLM 文本里漏出的 LaTeX 数学符号（不引整套 KaTeX）
+function cleanInlineMath(text) {
+  if (!text) return text;
+  return text
+    .replace(/\$\s*5\s*\\?alpha\s*\$/g, "5α")
+    .replace(/\$\s*\\?alpha\s*\$/g, "α")
+    .replace(/\$\s*\\?beta\s*\$/g, "β")
+    .replace(/\\?alpha/g, "α")
+    .replace(/\\?beta/g, "β")
+    .replace(/\$/g, "");
 }
 
 // ── 双轨评估结果 ──
@@ -240,12 +262,12 @@ function AssessmentResult({ result }) {
           <span className="inline-block w-2 h-2 rounded-full border" style={{ borderColor: "var(--teal-500)" }}></span>
           循证解释 · 指南检索推理
         </div>
-        <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--ink)" }}>{result.report_zh}</p>
+        <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--ink)" }}>{cleanInlineMath(result.report_zh)}</p>
       </div>
 
       {/* 来源引用 */}
       <div className="flex flex-wrap gap-1.5 mb-3">
-        {result.risk_sources.map((s, i) => (
+        {[...new Set(result.risk_sources)].map((s, i) => (
           <span key={i} className="text-xs px-2 py-0.5 rounded" style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>{s}</span>
         ))}
       </div>
@@ -255,6 +277,232 @@ function AssessmentResult({ result }) {
         <summary className="text-xs cursor-pointer" style={{ color: "var(--teal-700)" }}>查看英文推理过程（审计溯源）</summary>
         <pre className="text-xs mt-2 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap" style={{ background: "var(--card)", color: "#5a6a66" }}>{result.findings_en}</pre>
       </details>
+    </div>
+  );
+}
+
+// ── 编辑症状包（需求1-4）：文本、文件、上传、清洗 ──
+function EditPackageModal({ pkg, allRecords, busy, onSave, onClose, memberId }) {
+  if (!pkg) return null;
+  const [tab, setTab] = useState("edit");
+  const [text, setText] = useState({});
+  const [attachedIds, setAttachedIds] = useState(new Set());
+  const [uploading, setUploading] = useState(false);
+  const [curatedFiles, setCuratedFiles] = useState([]);
+  const fileRef = React.useRef(null);
+
+  // 解析症状包文本
+  React.useEffect(() => {
+    const parsed = {};
+    if (pkg?.extracted_zh) {
+      for (const line of pkg.extracted_zh.split("\n")) {
+        if (line.startsWith("主诉：")) parsed.chief_complaint = line.slice(3).trim();
+        else if (line.startsWith("症状：")) parsed.symptoms = line.slice(3).trim();
+        else if (line.startsWith("既往史：")) parsed.history = line.slice(4).trim();
+        else if (line.startsWith("用药：")) parsed.medications = line.slice(3).trim();
+        else if (line.startsWith("家族史：")) parsed.family_history = line.slice(4).trim();
+      }
+    }
+    setText(parsed);
+  }, [pkg]);
+
+  const handleUploadFiles = async (files) => {
+    setUploading(true);
+    setCuratedFiles([]);
+    for (const file of files) {
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("member_id", memberId);
+        fd.append("record_type", "lab_report");
+        fd.append("chief_complaint", text.chief_complaint || "");
+        const h = await authHeaders();
+        const resp = await fetch(`${API_BASE}/upload-for-curation`, {
+          method: "POST",
+          headers: h,
+          body: fd,
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        setCuratedFiles(prev => [...prev, {
+          upload_id: data.upload_id,
+          pending_id: data.pending_id,
+          file_name: file.name,
+          curator_notes: data.curator_notes,
+          raw: data.raw_extracted_zh,
+          accepted: null,
+        }]);
+      } catch (e) {
+        alert(`上传 ${file.name} 失败：${e.message}`);
+      }
+    }
+    setUploading(false);
+  };
+
+  const handleReviewFile = (idx, accepted) => {
+    const file = curatedFiles[idx];
+    setCuratedFiles(prev => {
+      const next = [...prev];
+      next[idx] = { ...file, accepted };
+      return next;
+    });
+    if (accepted) {
+      setAttachedIds(prev => new Set([...prev, file.upload_id]));
+    }
+  };
+
+  const handleSave = async () => {
+    if (busy) return;
+    await onSave({
+      package_id: pkg.id,
+      edits: text,
+      attach_ids: Array.from(attachedIds),
+      curated_reviews: curatedFiles.filter(f => f.accepted !== null),
+    });
+  };
+
+  const otherRecords = allRecords.filter(r => r.record_type !== 'symptom_package');
+  const availableRecords = otherRecords.filter(r => !attachedIds.has(r.id));
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
+      <div style={{ background: "var(--card)", borderRadius: "0.75rem", maxWidth: "600px", width: "90%", maxHeight: "80vh", overflow: "auto", padding: "1.5rem" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="serif text-lg" style={{ color: "var(--teal-900)" }}>编辑症状包</h3>
+          <button onClick={onClose} style={{ fontSize: "1.5rem", background: "none", border: "none", cursor: "pointer" }}>×</button>
+        </div>
+
+        {/* 选项卡 */}
+        <div className="flex gap-1 mb-4 border-b" style={{ borderColor: "var(--line)" }}>
+          {["edit", "attach", "upload"].map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              style={{
+                padding: "0.5rem 1rem",
+                borderBottom: tab === t ? "2px solid var(--teal-500)" : "2px solid transparent",
+                color: tab === t ? "var(--teal-700)" : "#7a8a86",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "0.875rem",
+                fontWeight: tab === t ? "600" : "400",
+              }}>
+              {t === "edit" && "编辑文本"}
+              {t === "attach" && "关联文件"}
+              {t === "upload" && "上传新文件"}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab 1: 编辑文本 */}
+        {tab === "edit" && (
+          <div className="space-y-3">
+            {[
+              ["chief_complaint", "主诉"],
+              ["symptoms", "症状"],
+              ["history", "既往史"],
+              ["medications", "用药"],
+              ["family_history", "家族史"],
+            ].map(([key, label]) => (
+              <div key={key}>
+                <label className="text-xs block mb-1" style={{ color: "var(--teal-700)" }}>{label}</label>
+                <textarea value={text[key] || ""} onChange={e => setText(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="w-full text-sm p-2 rounded border" style={{ borderColor: "var(--line)", minHeight: "80px" }}
+                  placeholder={`输入${label}…`} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab 2: 关联文件 */}
+        {tab === "attach" && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs font-medium mb-2" style={{ color: "var(--teal-700)" }}>可用文件</p>
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {availableRecords.length === 0 ? (
+                  <p className="text-xs" style={{ color: "#7a8a86" }}>暂无可用文件</p>
+                ) : (
+                  availableRecords.map(r => (
+                    <button key={r.id} onClick={() => setAttachedIds(prev => new Set([...prev, r.id]))}
+                      className="w-full text-left text-xs p-1.5 rounded border cursor-pointer hover:bg-teal-50"
+                      style={{ borderColor: "var(--line)" }}>
+                      {RECORD_TYPE_LABEL[r.record_type]} · {r.record_date}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-medium mb-2" style={{ color: "var(--teal-700)" }}>已关联</p>
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {attachedIds.size === 0 ? (
+                  <p className="text-xs" style={{ color: "#7a8a86" }}>未关联任何文件</p>
+                ) : (
+                  otherRecords.filter(r => attachedIds.has(r.id)).map(r => (
+                    <button key={r.id} onClick={() => { const s = new Set(attachedIds); s.delete(r.id); setAttachedIds(s); }}
+                      className="w-full text-left text-xs p-1.5 rounded border cursor-pointer hover:bg-red-50"
+                      style={{ borderColor: "var(--line)", borderLeftColor: "var(--ochre)" }}>
+                      {RECORD_TYPE_LABEL[r.record_type]} · {r.record_date}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: 上传新文件 */}
+        {tab === "upload" && (
+          <div className="space-y-3">
+            <input ref={fileRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+              onChange={e => { if (e.target.files?.length) handleUploadFiles(Array.from(e.target.files)); }} />
+            <button onClick={() => fileRef.current?.click()} disabled={uploading}
+              className="w-full text-sm px-3 py-2 rounded-lg border font-medium transition-opacity disabled:opacity-50"
+              style={{ borderColor: "var(--teal-500)", color: "var(--teal-900)", background: "var(--teal-50)" }}>
+              {uploading ? "上传中…" : "选择文件"}
+            </button>
+            {curatedFiles.length > 0 && (
+              <div className="border-t pt-3" style={{ borderColor: "var(--line)" }}>
+                <p className="text-xs font-medium mb-2" style={{ color: "var(--teal-700)" }}>清洗预览（请审核）</p>
+                <div className="space-y-2">
+                  {curatedFiles.map((f, i) => (
+                    <div key={i} className="p-2 rounded border" style={{ borderColor: "var(--line)", background: "var(--paper)" }}>
+                      <p className="text-xs font-medium mb-1">{f.file_name}</p>
+                      <p className="text-xs mb-2" style={{ color: "#5a6a66" }}>{f.curator_notes}</p>
+                      <div className="flex gap-1">
+                        <button onClick={() => handleReviewFile(i, true)} disabled={f.accepted !== null}
+                          className="text-xs px-2 py-1 rounded transition-opacity disabled:opacity-50"
+                          style={{ background: f.accepted === true ? "var(--teal-500)" : "var(--teal-100)", color: f.accepted === true ? "#fff" : "var(--teal-700)" }}>
+                          ✓ 接受
+                        </button>
+                        <button onClick={() => handleReviewFile(i, false)} disabled={f.accepted !== null}
+                          className="text-xs px-2 py-1 rounded transition-opacity disabled:opacity-50"
+                          style={{ background: f.accepted === false ? "var(--ochre)" : "var(--ochre-bg)", color: f.accepted === false ? "#fff" : "var(--ochre)" }}>
+                          × 拒绝
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 保存/取消 */}
+        <div className="flex gap-2 mt-6 pt-4 border-t" style={{ borderColor: "var(--line)" }}>
+          <button onClick={handleSave} disabled={busy || uploading}
+            className="flex-1 px-3 py-2 rounded-lg font-medium transition-opacity disabled:opacity-50"
+            style={{ background: "var(--teal-500)", color: "#fff" }}>
+            {busy ? "保存中…" : "保存"}
+          </button>
+          <button onClick={onClose} disabled={busy || uploading}
+            className="flex-1 px-3 py-2 rounded-lg font-medium border"
+            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "transparent" }}>
+            取消
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -336,7 +584,7 @@ function OptionCards({ q, busy, onSubmit, onMore }) {
 }
 
 // ── 主面板（F5 挂号视图 / F6 问诊视图 / 默认档案视图） ──
-function MemberDetail({ member, records, onRefreshRecords }) {
+function MemberDetail({ member, records, onRefreshRecords, editingPackage, savingPackage, onEditPackage, onSavePackage }) {
   const [view, setView] = useState("department");   // 默认即进"选择科室"（"profile" | "department" | "interview"）
   const [dept, setDept] = useState(null);
   const [messages, setMessages] = useState([]);   // 仅聊天气泡 {role, text}
@@ -629,7 +877,7 @@ function MemberDetail({ member, records, onRefreshRecords }) {
       ) : (
         <div className="space-y-3">
           {records.map(rec => (
-            <RecordCard key={rec.id} rec={rec} onAssess={handleAssess} assessing={assessingId === rec.id} />
+            <RecordCard key={rec.id} rec={rec} onAssess={handleAssess} assessing={assessingId === rec.id} onEdit={onEditPackage} />
           ))}
         </div>
       )}
@@ -641,6 +889,17 @@ function MemberDetail({ member, records, onRefreshRecords }) {
       )}
 
       <AssessmentResult result={result} />
+
+      {editingPackage && (
+        <EditPackageModal
+          pkg={editingPackage}
+          allRecords={records}
+          busy={savingPackage}
+          onSave={onSavePackage}
+          onClose={() => onEditPackage(null)}
+          memberId={member.id}
+        />
+      )}
 
       <p className="text-xs mt-8 pt-4 border-t" style={{ borderColor: "var(--line)", color: "#9aa8a4" }}>
         本系统为私人健康记录与评估辅助工具，输出不构成医疗诊断，不替代专业医疗。
@@ -670,6 +929,8 @@ function App() {
   const [activeId, setActiveId] = useState(USE_MOCK ? MOCK_MEMBERS[0].id : null);
   const [loadErr, setLoadErr] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [editingPackage, setEditingPackage] = useState(null);
+  const [savingPackage, setSavingPackage] = useState(false);
 
   // OIDC 初始化：处理登录回调或恢复已有会话
   useEffect(() => {
@@ -736,6 +997,61 @@ function App() {
     fetchRecords(activeId);
   }, [activeId]);
 
+  // 编辑症状包
+  const handleEditPackage = (pkg) => {
+    setEditingPackage(pkg);
+  };
+
+  // 保存症状包编辑
+  const handleSavePackage = async (changes) => {
+    setSavingPackage(true);
+    try {
+      const h = await authHeaders();
+
+      // 1. 编辑文本
+      if (Object.keys(changes.edits).length > 0) {
+        const resp = await fetch(`${API_BASE}/symptom-packages/${changes.package_id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...h },
+          body: JSON.stringify(changes.edits),
+        });
+        if (!resp.ok) throw new Error(`保存失败：${resp.status}`);
+      }
+
+      // 2. 管理关联文件
+      if (changes.attach_ids.length > 0) {
+        const resp = await fetch(`${API_BASE}/symptom-packages/${changes.package_id}/evidence`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...h },
+          body: JSON.stringify({ evidence_ids: changes.attach_ids, action: "add" }),
+        });
+        if (!resp.ok) throw new Error(`关联文件失败：${resp.status}`);
+      }
+
+      // 3. 审核上传的文件
+      for (const review of changes.curated_reviews) {
+        const resp = await fetch(`${API_BASE}/curation-review/${review.upload_id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...h },
+          body: JSON.stringify({
+            accepted: review.accepted,
+            package_id: changes.package_id,
+            curator_notes: review.curator_notes || "",
+          }),
+        });
+        if (!resp.ok) throw new Error(`审核失败：${resp.status}`);
+      }
+
+      // 刷新记录
+      await fetchRecords(activeId);
+      setEditingPackage(null);
+    } catch (e) {
+      alert(`保存失败：${e.message}`);
+    } finally {
+      setSavingPackage(false);
+    }
+  };
+
   if (!oidcReady) return (
     <div className="flex min-h-screen items-center justify-center">
       <p style={{ color: "var(--teal-700)" }}>正在初始化…</p>
@@ -763,7 +1079,11 @@ function App() {
           </div>
         )}
         {active && <MemberDetail member={active} records={records}
-                                 onRefreshRecords={() => fetchRecords(activeId)} />}
+                                 onRefreshRecords={() => fetchRecords(activeId)}
+                                 editingPackage={editingPackage}
+                                 savingPackage={savingPackage}
+                                 onEditPackage={handleEditPackage}
+                                 onSavePackage={handleSavePackage} />}
         {!active && !loadErr && (
           <div className="flex items-center justify-center h-full text-sm" style={{ color: "#7a8a86" }}>
             {members.length === 0 ? "暂无成员记录" : "请从左侧选择成员"}

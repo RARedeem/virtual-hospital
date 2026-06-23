@@ -52,3 +52,15 @@ async def extract_text(data: bytes, content_type: str) -> str:
         return "\n\n".join(parts)
     # 图片：jpeg / png 直接送
     return await _ocr_image_bytes(data)
+
+
+# 别名兼容性（防止代码中有旧的 extract_zh 调用）
+extract_zh = extract_text
+
+
+# 模块级 __getattr__，处理任何动态属性访问
+def __getattr__(name: str):
+    """为了兼容性，处理 extract_zh 的动态访问。"""
+    if name == "extract_zh":
+        return extract_text
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
