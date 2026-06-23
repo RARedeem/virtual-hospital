@@ -38,7 +38,8 @@ async def _run(args) -> None:
             print(f"[拒绝] {e}", file=sys.stderr)
             sys.exit(2)
     print(f"[完成] 来源 {summary['citation_id']}，"
-          f"切片 {summary['chunks_ingested']} 个，id={summary['source_id']}")
+          f"切片 {summary['chunks_ingested']} 个"
+          f"（跳过 {summary.get('chunks_skipped', 0)} 个），id={summary['source_id']}")
 
 
 def main() -> None:

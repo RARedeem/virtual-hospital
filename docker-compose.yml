@@ -89,7 +89,11 @@ services:
       - MINIO_ENDPOINT=minio:9000
       - MINIO_USER=${MINIO_USER:-vhminio}
       - MINIO_PASSWORD=${MINIO_PASSWORD}
-      - MODEL_TRANSLATE=gemma2:27b
+      # ★ 刚性约束导则（与约束 A/B 同级，不可动摇）：评估推理链路必须为
+      #   gemma4:31b 汉译英(translator-zh-en) → meditron:70b → gemma4:31b 英译汉(translator-en-zh)。
+      #   严禁把 MODEL_TRANSLATE/BACK 换成 gemma2 等非 gemma4:31b 模型。
+      - MODEL_TRANSLATE=translator-zh-en
+      - MODEL_TRANSLATE_BACK=translator-en-zh
       - MODEL_REASONING=meditron:70b
       - MODEL_EMBED=nomic-embed-text:v1.5
       - OIDC_ISSUER=${OIDC_ISSUER:-http://authentik-server:9000/application/o/virtual-hospital/}
