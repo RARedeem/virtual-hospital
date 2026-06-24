@@ -185,7 +185,7 @@
 <div class="wrap">
   <header>
     <span class="mark">总控 · God View</span>
-    <h1>虚拟医院 系统拓扑<span class="sub">私人家族健康评估 · 本地全栈</span></h1>
+    <h1>虚拟医院 系统拓扑<span class="sub">私人家族健康评估 · 本地全栈 · 实况 2026-06-24（v2 双盲已落地）</span></h1>
     <div class="spacer"></div>
     <div class="legend">
       <span><i class="dot ok"></i>已跑通</span>
@@ -240,7 +240,7 @@
 const LANES = [
   { id:"access",  label:"接入层 ACCESS",        y:70  },
   { id:"orch",    label:"编排层 ORCHESTRATION", y:200 },
-  { id:"model",   label:"模型层 MODELS",        y:370 },
+  { id:"model",   label:"模型层 MODELS",        y:380 },
   { id:"store",   label:"存储层 STORAGE",       y:540 },
   { id:"sub",     label:"子系统 SUBSYSTEMS",    y:680 },
 ];
@@ -248,111 +248,135 @@ const LANES = [
 // 节点：x,y 为中心；w,h 盒子尺寸
 const NODES = [
   // 接入层
-  { id:"frontend", lane:"access", x:240, y:70, w:170, h:52, title:"健康仪表盘", meta:"frontend/index.html", status:"ok",
-    role:"自包含单页应用（React+Tailwind，无构建）。左侧成员切换 + 右侧档案详情。双轨结果视觉区分：确定性规则=实心点+色条，RAG循证=空心点。",
-    files:["frontend/index.html","USE_MOCK 切换假数据/真后端"], note:"OIDC 已从隐式流改为授权码+PKCE（Authentik 2024.10 要求）。" },
-  { id:"tailscale", lane:"access", x:470, y:70, w:150, h:52, title:"Tailscale 组网", meta:"家属在外访问", status:"unbuilt",
+  { id:"frontend", lane:"access", x:250, y:70, w:185, h:52, title:"健康仪表盘", meta:"frontend/index.html", status:"ok",
+    role:"自包含单页应用（React+Tailwind，无构建）。深色 IDE 主题。左栏成员+评估进度，中间症状包下拉文字框，下方双盲并排报告（流程A⟂B 逐段流式 + 规则置顶 + 声明）。",
+    files:["frontend/index.html","OIDC 授权码+PKCE","轮询 /progress/assess 流式进度"], note:"评估 ~10min 期间左栏阶段进度 + 中间结论逐段淡入，把等待变成可见进展。" },
+  { id:"tailscale", lane:"access", x:480, y:70, w:150, h:52, title:"Tailscale 组网", meta:"家属在外访问", status:"unbuilt",
     role:"外部访问通道（家属在外）。不在部署骨架内，另行配置。", files:[], note:"数据不出家门原则下的受控远程入口。" },
+  { id:"github", lane:"access", x:680, y:70, w:165, h:52, title:"GitHub 私有库", meta:"RARedeem/virtual-hospital", status:"ok",
+    role:"代码私有托管。推送前全历史脱敏（去 PHI：姓名/UUID/出生年）；版权指南 PDF 退回本地(.gitignore)。",
+    files:["仅推 master，绝不 --all/--tags/--mirror","backup-pre-scrub tag 留本地含原始 PHI"], note:"实测 DB 数据不入库（数据不出家门）；仅代码+脱敏文档外发。" },
 
   // 编排层
-  { id:"orchestrator", lane:"orch", x:300, y:200, w:200, h:56, title:"编排服务", meta:"orchestrator · FastAPI", status:"ok",
-    role:"系统中枢。暴露 /assess /members /me 端点，编排翻译三明治 + 双轨评估，调度模型串行加载。",
-    files:["orchestrator/app/main.py","端点：/assess /members /me"], note:"每请求新建 DB 连接（连接池属 TODO B3 待优化）。" },
-  { id:"auth", lane:"orch", x:540, y:200, w:160, h:56, title:"授权 auth.py", meta:"分级权限", status:"ok",
-    role:"回答“你能看谁”。admin（本人）看全部成员，member 仅看自己。authorize_member_access 拦截越权，跨成员访问写 access_log。",
-    files:["orchestrator/app/auth.py","members.oidc_sub / role"], note:"身份（你是谁）归 Authentik，授权（能看谁）归本服务——后者依赖 members 表关系，IdP 无从知晓。" },
-  { id:"authentik", lane:"orch", x:740, y:200, w:160, h:56, title:"Authentik", meta:"OIDC 身份提供方", status:"ok",
-    role:"签发 JWT，回答“你是谁”。OAuth2/OIDC Provider，授权码+PKCE 流。",
-    files:["docker: authentik-server/worker/redis","localhost:9100"], note:"sub 是 hashed_user_id(64hex) 非 UUID。内外两套地址：浏览器用 9100，容器验签用内网 9000。" },
-  { id:"rules", lane:"orch", x:300, y:280, w:200, h:48, title:"规则引擎（确定性轨）", meta:"rules_engine + extractor", status:"ok",
-    role:"轨道一·确定性。extractor 抽结构化指标（空腹血糖/HbA1c/血压），rules_engine 对 JSONB 条件做硬阈值判断。命中作为“既定事实”注入推理，LLM 不得推翻。",
-    files:["orchestrator/app/rules_engine.py","orchestrator/app/extractor.py","db/init/02_rules_seed.sql"], note:"规则 citation_id 与摄取来源联动；来源废弃则规则失效。" },
-  { id:"pipeline", lane:"orch", x:540, y:280, w:200, h:48, title:"评估管道（概率轨）", meta:"pipeline.reason()", status:"ok",
-    role:"轨道二·概率性。翻译三明治：中译英→RAG检索→Meditron循证推理→英译中。两轨在 reason() 融合。",
-    files:["orchestrator/app/pipeline.py","pipeline.py.bak（复杂版备份）"], note:"G1 已解决：Meditron 用简化 prompt 反而稳定对症（指令过载假说证实）。" },
+  { id:"orchestrator", lane:"orch", x:285, y:200, w:200, h:54, title:"编排服务", meta:"orchestrator · FastAPI", status:"ok",
+    role:"系统中枢。端点 /assess(双盲) /interview/* (问诊) /upload(OCR) /symptom-packages/* /progress/assess(流式进度)。串行调度模型、显存 keep_alive=0。",
+    files:["orchestrator/app/main.py","progress_router.py"], note:"每请求新建 DB 连接（连接池属待优化）。" },
+  { id:"auth", lane:"orch", x:515, y:200, w:150, h:54, title:"授权 auth.py", meta:"分级权限", status:"ok",
+    role:"回答“你能看谁”。admin 看全部成员，member 仅看自己。authorize_member_access 拦截越权，跨成员访问写 access_log。",
+    files:["orchestrator/app/auth.py","members.oidc_sub / role"], note:"身份归 Authentik、授权归本服务（依赖 members 表关系，IdP 无从知晓）。" },
+  { id:"authentik", lane:"orch", x:705, y:200, w:150, h:54, title:"Authentik", meta:"OIDC 身份提供方", status:"ok",
+    role:"签发 JWT，回答“你是谁”。OAuth2/OIDC，授权码+PKCE。",
+    files:["docker: authentik-server/worker/redis","localhost:9100"], note:"sub=hashed_user_id(64hex)。浏览器用 9100、容器验签用内网 9000。无 recovery flow（重置密码走 ak shell）。" },
+  { id:"interviewer", lane:"orch", x:910, y:200, w:170, h:54, title:"问诊 interviewer", meta:"A1 · llama3.3", status:"ok",
+    role:"流程 A1 交互式问诊（llama3.3:70b）。选项卡(单/多选/＋更多)+自由文本，产出症状包打时间戳归档；主治清洗在档佐证并入。",
+    files:["orchestrator/app/interviewer.py","端点 /interview/start /chat /more"], cons:["A"], note:"交互式场景，模型须保快——故用装得下显存的 llama3.3，不用 offload 的 llama4。" },
+  { id:"rundual", lane:"orch", x:285, y:282, w:210, h:50, title:"双盲编排 run_dual", meta:"结构化+双轨", status:"ok",
+    role:"评估中枢：①结构化症状包(llama3.3) ②确定性规则(从原始数据) ③流程A2(国内·llama3.3) ⟂ 流程B(国际·llama4)，两轨只吃 A1 数据、互不见对方结论。",
+    files:["orchestrator/app/pipeline.py · run_dual()"], note:"结构化解耦『理解格式』与『医学推理』；双盲两轨并排，判断权归人。" },
+  { id:"rules", lane:"orch", x:520, y:282, w:185, h:50, title:"规则引擎（确定性轨）", meta:"rules_engine+extractor", status:"ok",
+    role:"轨道一·确定性。从【原始数据】翻译抽指标→JSONB 硬阈值判断；命中作两轨共享『既定事实』。忠实原值，不依赖 LLM 结构化改写。",
+    files:["rules_engine.py / extractor.py","rules.clinical_rules（8 条）"], note:"曾因从结构化文本抽取致命中 5→0，已改回从原始数据抽取。" },
+  { id:"ocr", lane:"orch", x:728, y:282, w:160, h:50, title:"报告 OCR", meta:"非评估预处理", status:"ok",
+    role:"上传化验/影像/处方报告→MinIO→OCR 提取→建 health_records。PDF 经 poppler 栅格化。",
+    files:["orchestrator/app/ocr.py · storage.py","端点 /upload"], cons:["Aex"], note:"用 glm-ocr（智谱，约束A例外）——仅此非评估 OCR，严禁接入推理/翻译/检索。" },
 
-  // 模型层（约束 A）
-  { id:"gemma", lane:"model", x:200, y:370, w:175, h:52, title:"gemma4:31b", meta:"翻译 · Google", status:"ok",
-    role:"中↔英翻译。两个自定义模型 translator-zh-en / translator-en-zh 以此为基座。",
-    files:["translator-zh-en","translator-en-zh"], cons:["A"], note:"2026-06-14 由 gemma2:27b 升级，两个 translator 已重建。" },
-  { id:"meditron", lane:"model", x:410, y:370, w:175, h:52, title:"meditron:70b", meta:"推理 · EPFL 瑞士", status:"ok",
-    role:"循证推理（流程 B）。医学文献微调模型，强于消化证据，弱于格式指令。",
-    files:["reasoner-meditron"], cons:["A"], note:"对专业微调模型：轻指令>重指令。少即是多。" },
-  { id:"nomic", lane:"model", x:620, y:370, w:175, h:52, title:"nomic-embed:v1.5", meta:"向量 · Nomic 美", status:"ok",
-    role:"768 维向量化。医疗指南检索 + 文档溯源血缘判定共用。",
-    files:["nomic-embed-text:v1.5"], cons:["A"], note:"替换了原方案 bge-m3（北京智源），因管道内 query/corpus 均英文，多语言能力未用上，替换合规且精度不降。" },
-  { id:"llama", lane:"model", x:830, y:370, w:175, h:52, title:"llama (v2 问诊)", meta:"问诊+A2 · Meta 美", status:"unbuilt",
-    role:"v2 流程 A1 交互式问诊 + A2 国内指南推理。无指南介入的纯问诊逻辑，产出症状数据包供 A2 和 B 消费。",
-    files:["llama3.3:70b 或 llama4:16x17b（待定）"], cons:["A"], note:"显存红线：llama4(67GB) 在与评估管道显存关系论证清楚前不贸然加载。" },
+  // 模型层
+  { id:"llama33", lane:"model", x:175, y:380, w:160, h:54, title:"llama3.3:70b", meta:"A轨/问诊/结构化 · Meta", status:"ok",
+    role:"流程 A1 问诊 + A2 国内循证推理（中文原生，无翻译三明治）+ 症状包结构化预处理。Dense 70B，42GB 装得下显存。",
+    files:["llama3.3:70b"], cons:["A"], note:"交互问诊须快→用它；与 B 轨 llama4 架构异质(Dense vs MoE)，构成真双盲。" },
+  { id:"llama4", lane:"model", x:360, y:380, w:160, h:54, title:"llama4:16x17b", meta:"B轨循证推理 · Meta", status:"ok",
+    role:"流程 B 国际循证推理（MoE，17B 激活）。2026-06-24 经三臂评测由 meditron 改版而来。",
+    files:["llama4:16x17b"], cons:["A"], note:"67GB>48GB 显存→部分 CPU offload，但 MoE 仅慢~1.6×，批处理(/assess)可容忍。meditron 因幻觉/过诊退役。" },
+  { id:"gemma", lane:"model", x:545, y:380, w:160, h:54, title:"gemma4:31b（译）", meta:"B轨翻译 · Google", status:"ok",
+    role:"流程 B 翻译三明治：中译英→…→英译中。两个定制模型 translator-zh-en / translator-en-zh。",
+    files:["translator-zh-en","translator-en-zh"], cons:["A"], note:"曾试 llama3.3 翻译，实测吐繁体+加戏→回退定制 gemma4(简体调校、守纪律)。" },
+  { id:"nomic", lane:"model", x:730, y:380, w:160, h:54, title:"nomic-embed:v1.5", meta:"B轨国际检索 · Nomic 美", status:"ok",
+    role:"768 维向量化，流程 B 检索国际指南(knowledge_base)。query/corpus 均英文。",
+    files:["nomic-embed-text:v1.5"], cons:["A"], note:"英文向；中文检索弱（故 A 轨另用 bge-m3）。" },
+  { id:"bgem3", lane:"model", x:915, y:380, w:155, h:54, title:"bge-m3", meta:"A轨国内检索 · 智源", status:"ok",
+    role:"1024 维向量化，流程 A2 检索国内指南(domestic_kb)。中文语义检索远强于 nomic。",
+    files:["bge-m3"], cons:["Aex"], note:"约束A例外：用户裁定为流程A破例。仅限 A2 国内检索，严禁入翻译/B轨。" },
+  { id:"glmocr", lane:"model", x:1095, y:380, w:150, h:54, title:"glm-ocr", meta:"非评估OCR · 智谱", status:"ok",
+    role:"上传报告本地 OCR 识字（非评估预处理）。",
+    files:["glm-ocr"], cons:["Aex"], note:"约束A例外：仅非评估 OCR，绝不接入 A1/A2/B 推理或翻译/检索。" },
 
   // 存储层
-  { id:"postgres", lane:"store", x:360, y:540, w:230, h:60, title:"PostgreSQL + pgvector", meta:"多 schema 隔离", status:"ok",
-    role:"统一存储实例，按 schema 物理隔离不同性质数据。knowledge_base（指南）/ member_data（会员）/ access_log（审计）/ doc_provenance（溯源）。",
-    files:["db/init/01_schema.sql","db/init/02_rules_seed.sql","db/init/03_provenance_schema.sql"], cons:["B","iso"],
-    note:"约束 B 双重防线：应用层正则黑名单 + DB CHECK 约束。doc_provenance 与 knowledge_base 同实例分 schema，向量空间不交叉。" },
-  { id:"minio", lane:"store", x:660, y:540, w:150, h:60, title:"MinIO", meta:"对象存储", status:"ok",
-    role:"体检报告 PDF 等对象文件存储。localhost:9000/9001。",
-    files:["docker: minio"], note:"备份覆盖对象文件。文件上传完整链路属 TODO B4。" },
+  { id:"kb", lane:"store", x:185, y:540, w:185, h:58, title:"knowledge_base", meta:"国际指南 · B轨", status:"ok",
+    role:"国际权威指南库（nomic 768 维）。ADA2026 / AHA-ACC HTN / EAU LUTS / ACC-AHA Dyslipidemia / MDS。约束B：org CHECK 拦大陆机构。",
+    files:["db/init/01_schema.sql","guideline_sources / guideline_chunks"], cons:["B","iso"], note:"流程 B 专用。规则 citation_id 与此联动。" },
+  { id:"domkb", lane:"store", x:390, y:540, w:185, h:58, title:"domestic_kb", meta:"国内指南 · A轨", status:"ok",
+    role:"国内指南库（bge-m3 1024 维，无 PRC CHECK）。5 源：中国高血压2024 / 糖尿病2020 / 帕金森第五版 / BPH共识2025 / 慢性肾脏病2026。",
+    files:["db/init/04_domestic_kb.sql","guideline_sources_cn / chunks_cn"], cons:["Bcn","iso"], note:"约束B分流程：流程A允许国内指南。与 knowledge_base 物理+向量空间隔离。" },
+  { id:"member", lane:"store", x:620, y:540, w:185, h:58, title:"member_data", meta:"会员档案", status:"ok",
+    role:"成员 / health_records（症状包+佐证+OCR报告）/ package_evidence / assessments（双盲两轨结论 flow_a + B）/ access_log 审计。",
+    files:["db/init/01_schema.sql · 03_auth.sql"], note:"成员姓名列 full_name；DB 用户 vhadmin。真实 PHI 仅存本地、不入 GitHub。" },
+  { id:"minio", lane:"store", x:830, y:540, w:150, h:58, title:"MinIO", meta:"对象存储", status:"ok",
+    role:"上传报告 PDF/图片对象（桶 health-reports）。localhost:9000/9001。",
+    files:["docker: minio · storage.py"], note:"备份覆盖对象文件。" },
 
   // 子系统
-  { id:"v1", lane:"sub", x:200, y:680, w:170, h:50, title:"v1 评估系统", meta:"单流程", status:"ok",
-    role:"翻译三明治 + 双轨评估，输出中文报告（含国际指南引用 + 规则命中）。已完整跑通，质量 working well。",
-    files:["= 编排层 + 模型层 + knowledge_base 的运行态"], note:"作为 v2 的流程 B 纳入双盲架构。" },
-  { id:"v2", lane:"sub", x:410, y:680, w:170, h:50, title:"v2 双盲交叉验证", meta:"背靠背双盲", status:"unbuilt",
-    role:"流程 A（llama+国内指南）与流程 B（meditron+国际指南）各自独立推理，互不知道对方结论。呈现层并排展示，判断权归人，系统不仲裁。",
-    files:["ARCHITECTURE.md","待实现：A1问诊/A2推理/呈现层"], cons:["B"],
-    note:"约束 B 对流程 A 放开（引入国内指南制造证据层异质性）——已评审通过。B 只接收 A1 原始症状数据，不接收 A2 结论，双盲数据流隔离。" },
-  { id:"provenance", lane:"sub", x:620, y:680, w:170, h:50, title:"文档溯源子系统", meta:"段落级血缘", status:"pending",
-    role:"对设计文档的段落级变更溯源：每个文本单元可追溯修改史/修编人/版本。向量化承担检索 + 血缘识别双角色。",
-    files:["splitter / embedder / lineage","provenance_ingest / query","03_provenance_schema.sql","+ 4 层文档"], cons:["iso"],
-    note:"代码 + 4 层文档完成，通过静态校验，待 Claude Code 连真实 DB/Ollama 落地。与医疗库物理隔离（同源约束 B 思想）。" },
-  { id:"backup", lane:"sub", x:830, y:680, w:170, h:50, title:"离线加密备份", meta:"restic", status:"ok",
-    role:"覆盖三类资产：PostgreSQL（全 schema+Authentik）/ MinIO 对象 / Ollama 自定义模型。强制校验离线硬盘已挂载。",
-    files:["backup/backup.sh","backup/restore.sh"], note:"保留 7 全量+4 周+6 月，每次抽样校验。仓库密码与硬盘分开离线保管。" },
+  { id:"v2", lane:"sub", x:230, y:680, w:195, h:50, title:"v2 双盲交叉验证", meta:"已落地", status:"ok",
+    role:"A1问诊→结构化→[A2 国内·llama3.3 ⟂ B 国际·llama4]→并排呈现。模型轴+证据轴+语境轴 三重异质性=真双盲。已端到端实测。",
+    files:["run_dual / interviewer / domestic_kb","前端并排报告 + 流式"], cons:["Bcn"], note:"两轨各照病例一面（BPH例：B精准定病、A托起代谢共病）。判断权归人，系统不仲裁。" },
+  { id:"provenance", lane:"sub", x:445, y:680, w:175, h:50, title:"文档溯源子系统", meta:"未落地", status:"unbuilt",
+    role:"设计：对文档段落级变更溯源（修改史/修编人/版本）。向量化做检索+血缘识别。",
+    files:["仅 4 层设计文档 + 拓扑图","provenance/*.py 与 schema 本库不存在"], cons:["iso"], note:"实测 doc_provenance schema 0 张表——设计完成、本库未落地。" },
+  { id:"backup", lane:"sub", x:640, y:680, w:160, h:50, title:"离线加密备份", meta:"restic", status:"ok",
+    role:"覆盖 PostgreSQL（全 schema+Authentik）/ MinIO / Ollama 自定义模型。强制校验离线硬盘已挂载。",
+    files:["backup/backup.sh / restore.sh"], note:"保留 7 全量+4 周+6 月，每次抽样校验。" },
 ];
 
 // 连线：type=flow(数据流) | dep(依赖)
 const EDGES = [
-  // 数据流主链
+  // 评估数据流（run_dual 双盲）
   { from:"frontend", to:"orchestrator", type:"flow" },
-  { from:"orchestrator", to:"pipeline", type:"flow" },
-  { from:"orchestrator", to:"rules", type:"flow" },
-  { from:"pipeline", to:"gemma", type:"flow" },
-  { from:"pipeline", to:"meditron", type:"flow" },
-  { from:"pipeline", to:"nomic", type:"flow" },
-  { from:"nomic", to:"postgres", type:"flow" },
-  { from:"rules", to:"postgres", type:"flow" },
-  { from:"meditron", to:"postgres", type:"flow" },
+  { from:"orchestrator", to:"rundual", type:"flow" },
+  { from:"orchestrator", to:"interviewer", type:"flow" },
+  { from:"orchestrator", to:"ocr", type:"flow" },
+  { from:"rundual", to:"rules", type:"flow" },
+  { from:"rundual", to:"llama33", type:"flow" },   // 结构化 + A2 推理
+  { from:"rundual", to:"llama4", type:"flow" },     // B 推理
+  { from:"rundual", to:"gemma", type:"flow" },      // B 翻译
+  { from:"rundual", to:"nomic", type:"flow" },      // B 检索
+  { from:"rundual", to:"bgem3", type:"flow" },      // A 检索
+  { from:"interviewer", to:"llama33", type:"flow" },
+  { from:"ocr", to:"glmocr", type:"flow" },
+  { from:"ocr", to:"minio", type:"flow" },
+  // 检索/落库到存储
+  { from:"nomic", to:"kb", type:"flow" },
+  { from:"bgem3", to:"domkb", type:"flow" },
+  { from:"rules", to:"kb", type:"flow" },
+  { from:"rundual", to:"member", type:"flow" },
+  { from:"interviewer", to:"member", type:"flow" },
   // 认证依赖
   { from:"frontend", to:"authentik", type:"dep" },
   { from:"orchestrator", to:"auth", type:"dep" },
   { from:"auth", to:"authentik", type:"dep" },
-  { from:"auth", to:"postgres", type:"dep" },
+  { from:"auth", to:"member", type:"dep" },
   { from:"tailscale", to:"frontend", type:"dep" },
-  { from:"orchestrator", to:"minio", type:"dep" },
   // 子系统聚合依赖
-  { from:"v1", to:"pipeline", type:"dep" },
-  { from:"v1", to:"rules", type:"dep" },
-  { from:"v2", to:"llama", type:"dep" },
-  { from:"v2", to:"meditron", type:"dep" },
-  { from:"v2", to:"v1", type:"dep" },
-  { from:"provenance", to:"nomic", type:"dep" },
-  { from:"provenance", to:"postgres", type:"dep" },
-  { from:"backup", to:"postgres", type:"dep" },
+  { from:"v2", to:"rundual", type:"dep" },
+  { from:"v2", to:"llama33", type:"dep" },
+  { from:"v2", to:"llama4", type:"dep" },
+  { from:"v2", to:"domkb", type:"dep" },
+  { from:"backup", to:"member", type:"dep" },
   { from:"backup", to:"minio", type:"dep" },
+  { from:"github", to:"frontend", type:"dep" },
 ];
 
 // 约束/隔离围栏：包住若干节点
 const BOUNDARIES = [
-  { cls:"A", label:"约束 A · 模型仅非大陆机构", nodes:["gemma","meditron","nomic","llama"], pad:22 },
-  { cls:"B", label:"约束 B · 指南仅国际权威", nodes:["postgres"], pad:14, side:"B" },
-  { cls:"iso", label:"隔离 · doc_provenance ⊥ knowledge_base", nodes:["provenance"], pad:14, side:"iso" },
+  { cls:"A", label:"约束 A · 评估模型仅非大陆机构", nodes:["llama33","llama4","gemma","nomic"], pad:20 },
+  { cls:"B", label:"约束 B · B轨国际指南锁死(CHECK)", nodes:["kb"], pad:14, side:"B" },
+  { cls:"iso", label:"约束B分流程 · A轨国内 / 向量空间隔离", nodes:["domkb"], pad:14, side:"iso" },
 ];
 
 const CONS_TEXT = {
-  A: { cls:"A", text:"约束 A：模型只能用非中国大陆机构开发的（gemma=Google / meditron=EPFL瑞士 / nomic=美 / llama=Meta）。禁 Qwen/DeepSeek/GLM/BGE。" },
-  B: { cls:"B", text:"约束 B：知识库指南来源仅国际权威机构（WHO/ADA/AHA/NICE/EAU/MDS）。会员上传的实体医院报告（含大陆医院）属个人医疗事实，不受此限。v2 流程 A 对此放开（已评审）。" },
-  iso:{ cls:"iso", text:"隔离约束：文档溯源库与医疗库物理隔离，同 pgvector 实例但分 schema，检索查询永不跨库。医疗检索绝不能命中文档修改史。" },
+  A:  { cls:"A",  text:"约束 A：评估全链路模型仅非中国大陆机构（llama3.3/llama4=Meta、gemma4=Google、nomic=美）。禁 Qwen/DeepSeek/GLM/BGE。" },
+  Aex:{ cls:"iso",text:"约束 A 例外（用户裁定）：bge-m3(智源) 仅限流程A国内指南检索；glm-ocr(智谱) 仅限非评估OCR。二者严禁接入翻译/B轨/任何评估推理。" },
+  B:  { cls:"B",  text:"约束 B（B轨）：knowledge_base 仅国际权威机构（WHO/ADA/AHA/NICE/EAU/MDS），org CHECK + ingest 黑名单双重防线。" },
+  Bcn:{ cls:"iso",text:"约束 B 分流程（A轨）：流程A允许国内指南，存 domestic_kb（无 PRC CHECK），制造证据层异质性。会员上传的大陆医院报告属个人医疗事实，亦不受限。" },
+  iso:{ cls:"iso",text:"隔离：domestic_kb(bge-m3 1024) ⊥ knowledge_base(nomic 768)，物理+向量空间隔离，检索永不跨库。文档溯源库(未落地)同此思想⊥医疗库。" },
 };
 
 // ============ 渲染 ============

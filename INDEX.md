@@ -108,9 +108,9 @@ provenance-system/
    v1.0 交付时已逐字核对一致。
 
 2. **拓扑图数据 ↔ 真实系统**
-   SYSTEM-TOPOLOGY.html 的 `NODES`/`EDGES`/`BOUNDARIES` 三个数组是手写的，
-   锁定在 2026-06-16。系统演进（v2 落地、本子系统接通真实环境、状态 pending→ok）后，
-   回去改这三个数组 + 节点 status 字段。
+   SYSTEM-TOPOLOGY.html 的 `NODES`/`EDGES`/`BOUNDARIES` 三个数组是手写的。
+   **已于 2026-06-24 按接管后实况重绘**（v2 双盲落地、meditron→llama4、双库 domestic_kb、
+   约束 A/B 例外、GitHub 私有库等）。系统再演进时回去改这三个数组 + 节点 status 字段。
 
 3. **本 INDEX 的文件清单 ↔ 实际文件**
    增删文件时回来改第一节的目录树。
