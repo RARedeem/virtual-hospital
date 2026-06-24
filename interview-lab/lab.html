@@ -25,9 +25,12 @@
   .user .bubble{background:var(--teal);color:#06110f}
   .ai .bubble{background:var(--card);border:1px solid var(--line)}
   .think{color:var(--muted);font-style:italic}
-  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 6px 4px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 6px 4px;align-items:center}
   .chip{background:rgba(52,169,157,.10);border:1px solid var(--teal);color:var(--teal7);border-radius:16px;padding:5px 13px;font-size:13px;cursor:pointer}
   .chip:hover{background:rgba(52,169,157,.22)}
+  .chip.sel{background:var(--teal);color:#06110f;font-weight:600}
+  .chip-ok{border-radius:16px;padding:5px 15px;font-size:13px;background:var(--teal);color:#06110f;border:none;font-weight:600}
+  .chip-ok:disabled{background:var(--card);color:var(--muted);border:1px solid var(--line)}
   footer{border-top:1px solid var(--line);padding:10px 16px;max-width:880px;margin:0 auto;width:100%;display:flex;gap:9px}
   textarea{flex:1;background:#0a1019;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:13.5px;resize:none;height:42px;font-family:inherit}
   textarea:focus{outline:none;border-color:var(--teal)}
@@ -58,7 +61,7 @@
 </footer>
 <script>
 const $=s=>document.querySelector(s);
-let messages=[], busy=false, mode="chat", turns=0, cum=0, modelMeta={};
+let messages=[], busy=false, mode="chat", turns=0, cum=0, modelMeta={}, selChips=new Set();
 
 async function loadModels(){
   try{
@@ -102,7 +105,16 @@ function render(){
       const {body,chips}=parseChips(m.content); b.textContent=body; w.appendChild(b); c.appendChild(w);
       if(isLast && chips.length){
         const cd=document.createElement("div"); cd.className="chips";
-        chips.forEach(ch=>{const x=document.createElement("button");x.className="chip";x.textContent=ch;x.onclick=()=>turn(ch);cd.appendChild(x);});
+        chips.forEach(ch=>{
+          const x=document.createElement("button");
+          x.className="chip"+(selChips.has(ch)?" sel":""); x.textContent=ch;
+          x.onclick=()=>{ selChips.has(ch)?selChips.delete(ch):selChips.add(ch); render(); };
+          cd.appendChild(x);
+        });
+        const ok=document.createElement("button"); ok.className="chip-ok";
+        ok.textContent=`确定 (${selChips.size})`; ok.disabled=selChips.size===0;
+        ok.onclick=()=>{ const v=[...selChips].join("、"); turn(v); };
+        cd.appendChild(ok);
         c.appendChild(cd);
       }
     }else{ b.textContent=m.content; w.appendChild(b); c.appendChild(w); }
@@ -114,6 +126,7 @@ function render(){
 async function turn(userText){
   if(busy) return;
   if(userText) messages.push({role:"user",content:userText});
+  selChips=new Set();                       // 提交后清空已选，下一问重新开始
   busy=true; render(); $("#send").disabled=true;
   try{
     const d=await (await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},

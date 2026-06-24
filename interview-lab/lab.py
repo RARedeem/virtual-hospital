@@ -76,6 +76,7 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(b)))
+        self.send_header("Cache-Control", "no-store")   # 禁缓存：防 lab.html 版本错配
         self.end_headers()
         self.wfile.write(b)
 
