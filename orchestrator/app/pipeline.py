@@ -25,6 +25,8 @@ MODEL_EMBED = os.environ.get("MODEL_EMBED", "nomic-embed-text:v1.5")
 # 边界见 ARCHITECTURE §2 / db/init/04_domestic_kb.sql。
 MODEL_A2_REASONING = os.environ.get("MODEL_A2_REASONING", "llama3.3:70b")
 MODEL_EMBED_CN = os.environ.get("MODEL_EMBED_CN", "bge-m3")
+# 结构化预处理：把零散症状包+佐证整理成结构化转诊摘要（reorganize，非summarize）。约束A合规。
+MODEL_STRUCTURE = os.environ.get("MODEL_STRUCTURE", "llama3.3:70b")
 
 # RAG 上下文收敛（数据/检索层，非模型链）：喂给 meditron 的上下文过长会导致其
 # 生成失控/回吐（联调实测 ~1万字符 → >33min 超时）。聚焦少量短块，与历史验证场景的
@@ -242,6 +244,27 @@ async def reason_a2(patient_zh: str, guidelines: list[dict]) -> str:
 # 双盲编排 + 呈现层（纯代码）
 # ════════════════════════════════════════════════════════
 
+async def structure_symptom_package(zh_blob: str) -> str:
+    """把零散的症状包 + 在档佐证整理成【结构化转诊摘要】，供 A2/B 循证推理消费。
+    解耦"理解格式"与"医学推理"——推理模型拿到的是干净结构而非碎片乱麻。
+    ⚠ 只归类整理、完整保留每一项客观数值，绝不诊断/臆测/删减（同 evidence-curation-principle）。"""
+    system = (
+        "你是主治医师，把下列零散的病历信息整理成【结构化转诊摘要】，供会诊医师循证推理。严格规则：\n"
+        "1. 完整保留每一项客观数值、检查发现、明确诊断、既往史——一项不漏、不改数值、不合并丢弃。\n"
+        "2. 只做归类与整理，不做诊断、不臆测、不新增信息、不删减。\n"
+        "3. 按以下模板分节输出（某节无内容写『无』）：\n"
+        "【主诉】\n【现病史】（症状/起病时间/诱因）\n【既往史·手术史】\n【用药】\n【家族史】\n"
+        "【客观检查发现】（按器官系统或报告分组，逐条列出数值与发现）\n【关键异常指标】（指标=数值，逐条）"
+    )
+    user = f"【原始病历信息】\n{zh_blob}\n\n请输出结构化转诊摘要："
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    try:
+        out = await oc.chat(MODEL_STRUCTURE, messages, options={"temperature": 0.2, "num_predict": 1000})
+        return out.strip() or zh_blob
+    except Exception:
+        return zh_blob   # 整理失败兜底用原文，不阻断评估
+
+
 async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -> dict:
     """
     背靠背双盲评估（ARCHITECTURE §3）。同一份 A1 症状数据，A2 与 B 各自独立推理。
@@ -265,9 +288,14 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -
             try: on_partial(patch)
             except Exception: pass
 
+    # 结构化预处理（两轨共享）：乱麻症状包+佐证 → 结构化转诊摘要，再喂推理
+    _stage("structure")
+    structured_zh = await structure_symptom_package(zh_patient_data)
+    _partial({"structured_zh": structured_zh})
+
     # 共享确定性层（规则只算一次；需英文指标抽取，复用 B 的翻译产物）
     _stage("translate_en")
-    translated_en = await translate_to_en(zh_patient_data)
+    translated_en = await translate_to_en(structured_zh)
     _stage("rules")
     metrics = await extractor.extract_metrics(translated_en)
     active_rules = await fetch_active_rules(conn)
@@ -281,9 +309,9 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -
 
     # 流程 A2：国内指南 + llama 中文推理
     _stage("a2_retrieve")
-    a_guidelines = await retrieve_domestic_guidelines(conn, zh_patient_data)
+    a_guidelines = await retrieve_domestic_guidelines(conn, structured_zh)
     _stage("a2_reason")
-    report_a_zh = await reason_a2(zh_patient_data, a_guidelines)
+    report_a_zh = await reason_a2(structured_zh, a_guidelines)
     sources_a = [g["citation_id"] for g in a_guidelines]
     _partial({"report_a_zh": report_a_zh, "sources_a": sources_a,
               "a_model": MODEL_A2_REASONING})                       # A 轨结论流出
