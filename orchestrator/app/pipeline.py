@@ -242,19 +242,28 @@ async def reason_a2(patient_zh: str, guidelines: list[dict]) -> str:
 # 双盲编排 + 呈现层（纯代码）
 # ════════════════════════════════════════════════════════
 
-async def run_dual(conn, zh_patient_data: str) -> dict:
+async def run_dual(conn, zh_patient_data: str, on_stage=None) -> dict:
     """
     背靠背双盲评估（ARCHITECTURE §3）。同一份 A1 症状数据，A2 与 B 各自独立推理。
 
     双盲保证：A2 与 B 都【只】消费 zh_patient_data（A1 症状 + 在档佐证），
     互不传入对方的结论。确定性规则作为两轨共享的既定事实层，单算一次。
 
-    显存：依赖 OLLAMA_KEEP_ALIVE=0（ARCHITECTURE §6.1）自动串行换载；
-    顺序 A2(llama+bge-m3) → B(gemma4+meditron+nomic)，与 §6.2 一致。
-    流程 B 路线（gemma4→nomic检索→meditron→gemma4）原样不动，仅与 A2 并排编排。
+    on_stage(key)：可选回调，进入每个阶段时调用，供前端展示实时进度
+    （key 见 progress_router.ASSESS_STAGES）。
+
+    显存：依赖 OLLAMA_KEEP_ALIVE=0（ARCHITECTURE §6.1）自动串行换载。
+    流程 B 路线（gemma4→nomic检索→llama4→gemma4）原样不动，仅与 A2 并排编排。
     """
+    def _stage(k):
+        if on_stage:
+            try: on_stage(k)
+            except Exception: pass
+
     # 共享确定性层（规则只算一次；需英文指标抽取，复用 B 的翻译产物）
+    _stage("translate_en")
     translated_en = await translate_to_en(zh_patient_data)
+    _stage("rules")
     metrics = await extractor.extract_metrics(translated_en)
     active_rules = await fetch_active_rules(conn)
     rule_hits = rules_engine.evaluate_rules(metrics, active_rules)
@@ -265,13 +274,18 @@ async def run_dual(conn, zh_patient_data: str) -> dict:
     ]
 
     # 流程 A2：国内指南 + llama 中文推理
+    _stage("a2_retrieve")
     a_guidelines = await retrieve_domestic_guidelines(conn, zh_patient_data)
+    _stage("a2_reason")
     report_a_zh = await reason_a2(zh_patient_data, a_guidelines)
     sources_a = [g["citation_id"] for g in a_guidelines]
 
-    # 流程 B：国际指南 + meditron（路线不动）
+    # 流程 B：国际指南 + llama4（路线不动）
+    _stage("b_retrieve")
     b_guidelines = await retrieve_guidelines(conn, translated_en)
+    _stage("b_reason")
     findings_en = await reason(translated_en, b_guidelines, rule_hits)
+    _stage("b_translate")
     report_b_zh = await translate_to_zh(findings_en)
     sources_b = [g["citation_id"] for g in b_guidelines]
 

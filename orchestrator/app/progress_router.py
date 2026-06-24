@@ -58,3 +58,71 @@ def post_progress(payload: ProgressPayload):
 @router.get("/health")
 def health():
     return {"ok": True, "ts": time.time()}
+
+
+# ════════════════════════════════════════════════════════
+# 评估阶段进度（/assess 期间前端轮询，把 ~10min 黑屏变成可见进展）
+# 单用户家庭系统：一次只跑一次评估，全局单文件足够。
+# ════════════════════════════════════════════════════════
+ASSESS_FILE = os.environ.get("ASSESS_PROGRESS_FILE", "/tmp/vh_assess_progress.json")
+
+# 阶段按 pipeline.run_dual 实际执行顺序排列
+ASSESS_STAGES = [
+    ("translate_en", "汉译英 · gemma4"),
+    ("rules",        "抽取指标 + 规则引擎"),
+    ("a2_retrieve",  "检索国内指南 · bge-m3"),
+    ("a2_reason",    "流程 A 国内循证推理 · llama3.3"),
+    ("b_retrieve",   "检索国际指南 · nomic"),
+    ("b_reason",     "流程 B 国际循证推理 · llama4（最耗时）"),
+    ("b_translate",  "英译汉 · gemma4"),
+]
+
+
+def _assess_write(d: dict):
+    with open(ASSESS_FILE, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False)
+
+
+def assess_init():
+    """评估开始：所有阶段置 pending，标记 running。"""
+    _assess_write({
+        "running": True, "started_at": time.time(),
+        "stages": [{"key": k, "label": l, "status": "pending"} for k, l in ASSESS_STAGES],
+    })
+
+
+def assess_mark(key: str):
+    """进入某阶段：该阶段 active，其之前的全部 done。"""
+    try:
+        d = json.load(open(ASSESS_FILE, encoding="utf-8"))
+    except Exception:
+        return
+    hit = False
+    for s in d.get("stages", []):
+        if s["key"] == key:
+            s["status"] = "active"; hit = True
+        elif not hit:
+            s["status"] = "done"
+    d["updated_at"] = time.time()
+    _assess_write(d)
+
+
+def assess_done():
+    """评估结束：全部 done，running=False。"""
+    try:
+        d = json.load(open(ASSESS_FILE, encoding="utf-8"))
+    except Exception:
+        d = {"stages": []}
+    for s in d.get("stages", []):
+        s["status"] = "done"
+    d["running"] = False
+    d["finished_at"] = time.time()
+    _assess_write(d)
+
+
+@router.get("/assess")
+def get_assess_progress():
+    try:
+        return json.load(open(ASSESS_FILE, encoding="utf-8"))
+    except Exception:
+        return {"running": False, "stages": []}

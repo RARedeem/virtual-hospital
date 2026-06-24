@@ -14,6 +14,7 @@ from . import auth
 from . import interviewer as interviewer_module
 from . import storage
 from . import ocr
+from . import progress_router as progress_router_mod
 from .auth import Principal
 
 PG_DSN = os.environ["PG_DSN"]
@@ -356,7 +357,11 @@ async def assess(req: AssessRequest,
                 patient_zh = row[0]
 
             # psycopg3 fetch 封装（简化版，生产可换 asyncpg）
-            result = await pipeline.run_dual(_ConnAdapter(conn), patient_zh)
+            # 评估阶段进度：run_dual 每进一阶段回调写进度，前端轮询 GET /progress/assess 展示
+            progress_router_mod.assess_init()
+            result = await pipeline.run_dual(
+                _ConnAdapter(conn), patient_zh, on_stage=progress_router_mod.assess_mark)
+            progress_router_mod.assess_done()
             async with conn.cursor() as cur:
                 await cur.execute(
                     """

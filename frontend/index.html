@@ -264,6 +264,52 @@ function FlowTrack({ label, sub, report_zh, sources }) {
   );
 }
 
+// ── 评估进行中的实时阶段进度（把 ~10min 等待变成可见进展） ──
+function AssessProgress({ active }) {
+  const [data, setData] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!active) { setData(null); setElapsed(0); return; }
+    const t0 = Date.now();
+    const poll = async () => {
+      try { const r = await fetch(`${API_BASE}/progress/assess`); if (r.ok) setData(await r.json()); } catch (e) {}
+    };
+    poll();
+    const pid = setInterval(poll, 2500);
+    const tid = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => { clearInterval(pid); clearInterval(tid); };
+  }, [active]);
+  if (!active) return null;
+  const stages = (data && data.stages) || [];
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const ss = String(elapsed % 60).padStart(2, "0");
+  return (
+    <div className="mt-5 rounded-xl border p-5" style={{ borderColor: "var(--teal-100)", background: "var(--teal-50)" }}>
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="serif text-lg" style={{ color: "var(--teal-900)" }}>双盲评估进行中…</h3>
+        <span className="text-sm tabular-nums" style={{ color: "var(--teal-700)" }}>{mm}:{ss}</span>
+      </div>
+      <p className="text-xs mb-4" style={{ color: "var(--muted2)" }}>
+        本地模型逐阶段推理，通常数分钟至数十分钟。请勿关闭页面——较长耗时属正常运行状态，不代表评估质量。
+      </p>
+      <div className="space-y-2.5">
+        {stages.length === 0 && <div className="text-sm" style={{ color: "var(--muted2)" }}>◐ 正在启动评估管道…</div>}
+        {stages.map((s, i) => {
+          const done = s.status === "done", act = s.status === "active";
+          const icon = done ? "✓" : act ? "◐" : "○";
+          const color = done ? "var(--teal-500)" : act ? "var(--teal-900)" : "var(--muted2)";
+          return (
+            <div key={i} className="flex items-center gap-2.5 text-sm" style={{ color }}>
+              <span className={act ? "animate-pulse" : ""} style={{ width: "1.2em", textAlign: "center" }}>{icon}</span>
+              <span style={{ fontWeight: act ? 600 : 400 }}>{s.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── 双盲交叉验证评估结果 ──
 function AssessmentResult({ result }) {
   if (!result) return null;
@@ -927,6 +973,8 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
           评估未能完成：{error}。请确认编排服务正在运行。
         </div>
       )}
+
+      <AssessProgress active={!!assessingId} />
 
       <AssessmentResult result={result} />
 
