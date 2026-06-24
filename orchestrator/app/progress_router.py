@@ -84,11 +84,23 @@ def _assess_write(d: dict):
 
 
 def assess_init():
-    """评估开始：所有阶段置 pending，标记 running。"""
+    """评估开始：所有阶段置 pending，标记 running，清空部分结果。"""
     _assess_write({
         "running": True, "started_at": time.time(),
         "stages": [{"key": k, "label": l, "status": "pending"} for k, l in ASSESS_STAGES],
+        "partials": {},
     })
+
+
+def assess_partial(patch: dict):
+    """流式部分结果：每完成一段（规则/A轨/B轨）即合并写入，供前端逐段呈现。"""
+    try:
+        d = json.load(open(ASSESS_FILE, encoding="utf-8"))
+    except Exception:
+        return
+    d.setdefault("partials", {}).update(patch or {})
+    d["updated_at"] = time.time()
+    _assess_write(d)
 
 
 def assess_mark(key: str):

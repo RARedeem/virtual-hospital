@@ -182,7 +182,7 @@ function age(birth) {
 }
 
 // ── 左侧成员栏 ──
-function MemberSidebar({ members, activeId, onSelect }) {
+function MemberSidebar({ members, activeId, onSelect, assessProg }) {
   return (
     <aside className="w-64 shrink-0 border-r min-h-screen p-5" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
       <div className="mb-6">
@@ -205,6 +205,7 @@ function MemberSidebar({ members, activeId, onSelect }) {
           );
         })}
       </nav>
+      <SidebarProgress prog={assessProg} />
     </aside>
   );
 }
@@ -299,69 +300,83 @@ function FlowTrack({ label, sub, report_zh, sources, accent }) {
   );
 }
 
-// ── 评估进行中的实时阶段进度（把 ~10min 等待变成可见进展） ──
-function AssessProgress({ active }) {
-  const [data, setData] = useState(null);
-  const [elapsed, setElapsed] = useState(0);
+// ── 左栏评估进度（阶段 + 计时；数据由 App 轮询 /progress/assess 传入） ──
+function SidebarProgress({ prog }) {
+  const [now, setNow] = useState(Date.now());
+  const running = !!(prog && prog.running);
   useEffect(() => {
-    if (!active) { setData(null); setElapsed(0); return; }
-    const t0 = Date.now();
-    const poll = async () => {
-      try { const r = await fetch(`${API_BASE}/progress/assess`); if (r.ok) setData(await r.json()); } catch (e) {}
-    };
-    poll();
-    const pid = setInterval(poll, 2500);
-    const tid = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
-    return () => { clearInterval(pid); clearInterval(tid); };
-  }, [active]);
-  if (!active) return null;
-  const stages = (data && data.stages) || [];
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
-  const ss = String(elapsed % 60).padStart(2, "0");
+    if (!running) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running]);
+  if (!running) return null;
+  const stages = prog.stages || [];
+  const el = prog.started_at ? Math.max(0, Math.floor(now / 1000 - prog.started_at)) : 0;
+  const mm = String(Math.floor(el / 60)).padStart(2, "0"), ss = String(el % 60).padStart(2, "0");
   return (
-    <div className="vh-fade mt-5 rounded-xl border p-5" style={{ borderColor: "var(--teal-100)", background: "var(--teal-50)" }}>
-      <div className="flex items-center justify-between mb-1">
-        <h3 className="serif text-lg" style={{ color: "var(--teal-900)" }}>双盲评估进行中…</h3>
-        <span className="text-sm tabular-nums" style={{ color: "var(--teal-700)" }}>{mm}:{ss}</span>
+    <div className="mt-6 pt-4 vh-fade" style={{ borderTop: "1px solid var(--line)" }}>
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-xs font-medium" style={{ color: "var(--teal-700)" }}>双盲评估进行中</span>
+        <span className="text-xs tabular-nums" style={{ color: "var(--muted)" }}>{mm}:{ss}</span>
       </div>
-      <p className="text-xs mb-4" style={{ color: "var(--muted2)" }}>
-        本地模型逐阶段推理，通常数分钟至数十分钟。请勿关闭页面——较长耗时属正常运行状态，不代表评估质量。
-      </p>
-      <div className="space-y-2.5">
-        {stages.length === 0 && <div className="text-sm" style={{ color: "var(--muted2)" }}>◐ 正在启动评估管道…</div>}
+      <div className="space-y-1.5">
         {stages.map((s, i) => {
           const done = s.status === "done", act = s.status === "active";
-          const icon = done ? "✓" : act ? "◐" : "○";
-          const color = done ? "var(--teal-500)" : act ? "var(--teal-900)" : "var(--muted2)";
           return (
-            <div key={i} className="flex items-center gap-2.5 text-sm" style={{ color }}>
-              <span className={act ? "animate-pulse" : ""} style={{ width: "1.2em", textAlign: "center" }}>{icon}</span>
-              <span style={{ fontWeight: act ? 600 : 400 }}>{s.label}</span>
+            <div key={i} className="flex items-start gap-1.5 text-xs" style={{ color: done ? "var(--teal-500)" : act ? "var(--teal-900)" : "var(--muted2)" }}>
+              <span className={act ? "animate-pulse" : ""} style={{ width: "1em", textAlign: "center", flexShrink: 0 }}>{done ? "✓" : act ? "◐" : "○"}</span>
+              <span style={{ fontWeight: act ? 600 : 400, lineHeight: 1.35 }}>{s.label}</span>
             </div>
           );
         })}
       </div>
+      <p className="text-xs mt-3" style={{ color: "var(--muted2)", lineHeight: 1.4 }}>本地模型逐阶段推理，请勿关闭页面——较长耗时属正常。</p>
+    </div>
+  );
+}
+
+// 流式期间某轨尚未产出时的占位卡
+function TrackPlaceholder({ label, sub, accent }) {
+  return (
+    <div className="rounded-lg p-3.5" style={{ background: "var(--card)", border: "1px solid var(--teal-100)", borderTop: `2px solid ${accent}` }}>
+      <div className="text-xs font-medium mb-2.5 flex items-center gap-1.5" style={{ color: "var(--teal-700)" }}>
+        <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: accent }}></span>
+        {label}<span className="font-normal" style={{ color: "var(--muted2)" }}>· {sub}</span>
+      </div>
+      <p className="text-sm flex items-center gap-1" style={{ color: "var(--muted)" }}>
+        推理中<span className="vh-dot"></span><span className="vh-dot"></span><span className="vh-dot"></span>
+      </p>
     </div>
   );
 }
 
 // ── 双盲交叉验证评估结果 ──
-function AssessmentResult({ result }) {
-  if (!result) return null;
+// result=最终结果；live=流式部分结果(partials)；streaming=是否评估进行中
+// 统一渲染：规则先出 → A轨 → B轨 逐段呈现，未出的轨在流式时显占位
+function AssessmentResult({ result, live, streaming }) {
+  // 归一化字段（最终结果 B 用 report_zh/risk_sources；部分结果用 report_b_zh/sources_b）
+  const D = result ? {
+    rule_hits: result.rule_hits || [], report_a_zh: result.report_a_zh, sources_a: result.sources_a, a_model: result.a_model,
+    report_b_zh: result.report_zh, sources_b: result.risk_sources, b_model: result.b_model, findings_en: result.findings_en,
+  } : (live || {});
+  const rules = D.rule_hits || [];
+  const hasAny = rules.length || D.report_a_zh || D.report_b_zh;
+  if (!result && !streaming) return null;
+  if (!hasAny && !streaming) return null;
   return (
     <div className="vh-fade mt-5 rounded-xl border p-5" style={{ borderColor: "var(--teal-100)", background: "var(--teal-50)" }}>
-      <h3 className="serif text-lg mb-1" style={{ color: "var(--teal-900)" }}>评估报告</h3>
+      <h3 className="serif text-lg mb-1" style={{ color: "var(--teal-900)" }}>评估报告{!result && streaming ? " · 生成中…" : ""}</h3>
       <p className="text-xs mb-4" style={{ color: "var(--muted2)" }}>背靠背双盲交叉验证 · 两轨独立推理、并排呈现，判断权归人</p>
 
-      {/* 确定性规则命中（双盲共同地基，置顶） */}
-      {result.rule_hits.length > 0 && (
-        <div className="mb-5">
+      {/* 确定性规则命中（双盲共同地基，最先产出） */}
+      {rules.length > 0 && (
+        <div className="mb-5 vh-fade">
           <div className="text-xs font-medium mb-2 flex items-center gap-1.5" style={{ color: "var(--teal-700)" }}>
             <span className="inline-block w-2 h-2 rounded-full" style={{ background: "var(--teal-500)" }}></span>
             确定性判断 · 规则引擎
           </div>
           <div className="space-y-2">
-            {result.rule_hits.map((h, i) => {
+            {rules.map((h, i) => {
               const sev = SEVERITY[h.severity] || SEVERITY.low;
               return (
                 <div key={i} className="rounded-lg p-3 text-sm" style={{ background: "var(--card)", borderLeft: `3px solid ${sev.fg}` }}>
@@ -369,9 +384,7 @@ function AssessmentResult({ result }) {
                     <span className="font-medium">{h.conclusion}</span>
                     <span className="text-xs px-1.5 py-0.5 rounded shrink-0 ml-2" style={{ background: sev.bg, color: sev.fg }}>{sev.label}</span>
                   </div>
-                  <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>
-                    {h.metric} = {h.value} · 来源 [{h.citation_id}]
-                  </div>
+                  <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>{h.metric} = {h.value} · 来源 [{h.citation_id}]</div>
                 </div>
               );
             })}
@@ -379,19 +392,23 @@ function AssessmentResult({ result }) {
         </div>
       )}
 
-      {/* 循证解释 · 双盲并排（左 A 国内 / 右 B 国际，窄屏自动上下堆叠） */}
+      {/* 循证解释 · 双盲并排，逐轨流入；未出的轨在流式时显占位 */}
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-        <FlowTrack label="流程 A · 循证解释" sub={`国内指南 · ${(result.a_model || "llama3.3").split(":")[0]}`}
-                   report_zh={result.report_a_zh} sources={result.sources_a} accent="var(--teal-500)" />
-        <FlowTrack label="流程 B · 循证解释" sub={`国际指南 · ${(result.b_model || "llama4").split(":")[0]}`}
-                   report_zh={result.report_zh} sources={result.risk_sources} accent="#6b9bd1" />
+        {D.report_a_zh
+          ? <div className="vh-fade"><FlowTrack label="流程 A · 循证解释" sub={`国内指南 · ${(D.a_model || "llama3.3").split(":")[0]}`} report_zh={D.report_a_zh} sources={D.sources_a} accent="var(--teal-500)" /></div>
+          : (streaming && <TrackPlaceholder label="流程 A · 循证解释" sub="国内指南 · llama3.3" accent="var(--teal-500)" />)}
+        {D.report_b_zh
+          ? <div className="vh-fade"><FlowTrack label="流程 B · 循证解释" sub={`国际指南 · ${(D.b_model || "llama4").split(":")[0]}`} report_zh={D.report_b_zh} sources={D.sources_b} accent="#6b9bd1" /></div>
+          : (streaming && <TrackPlaceholder label="流程 B · 循证解释" sub="国际指南 · llama4" accent="#6b9bd1" />)}
       </div>
 
-      {/* 英文中间结果折叠（流程 B 审计溯源） */}
-      <details className="mt-2 mb-4">
-        <summary className="text-xs cursor-pointer" style={{ color: "var(--teal-700)" }}>查看流程 B 英文推理过程（审计溯源）</summary>
-        <pre className="text-xs mt-2 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap" style={{ background: "var(--card)", color: "var(--faint)" }}>{result.findings_en}</pre>
-      </details>
+      {/* 英文中间结果折叠（仅最终结果有） */}
+      {result && result.findings_en && (
+        <details className="mt-2 mb-4">
+          <summary className="text-xs cursor-pointer" style={{ color: "var(--teal-700)" }}>查看流程 B 英文推理过程（审计溯源）</summary>
+          <pre className="text-xs mt-2 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap" style={{ background: "var(--card)", color: "var(--faint)" }}>{result.findings_en}</pre>
+        </details>
+      )}
 
       {/* 声明条款（必须醒目展示） */}
       <div className="text-xs leading-relaxed rounded-lg p-3 space-y-1.5" style={{ background: "var(--disc-bg)", border: "1px solid var(--disc-line)", color: "var(--disc-text)" }}>
@@ -705,7 +722,7 @@ function OptionCards({ q, busy, onSubmit, onMore }) {
 }
 
 // ── 主面板（F5 挂号视图 / F6 问诊视图 / 默认档案视图） ──
-function MemberDetail({ member, records, onRefreshRecords, editingPackage, savingPackage, onEditPackage, onSavePackage }) {
+function MemberDetail({ member, records, onRefreshRecords, editingPackage, savingPackage, onEditPackage, onSavePackage, assessProg }) {
   const [view, setView] = useState("department");   // 默认即进"选择科室"（"profile" | "department" | "interview"）
   const [dept, setDept] = useState(null);
   const [messages, setMessages] = useState([]);   // 仅聊天气泡 {role, text}
@@ -716,12 +733,13 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
   const [assessingId, setAssessingId] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [selPkgId, setSelPkgId] = useState(null);   // 当前选中的症状包
 
   function startInterview() { setView("department"); setError(null); }
 
   useEffect(() => {
     setView("department"); setDept(null); setMessages([]); setPending(null); setDone(false);
-    setInputText(""); setResult(null); setError(null);
+    setInputText(""); setResult(null); setError(null); setSelPkgId(null);
   }, [member.id]);
 
   async function chooseDept(deptKey) {
@@ -989,20 +1007,55 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
           + 开始问诊
         </button>
       </div>
-      <p className="text-sm mb-6" style={{ color: "var(--muted)" }}>健康记录 {records.length} 条</p>
-
-      {records.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-10 text-center" style={{ borderColor: "var(--line)" }}>
-          <p className="text-sm" style={{ color: "var(--muted)" }}>暂无健康记录</p>
-          <p className="text-xs mt-1" style={{ color: "var(--muted2)" }}>上传检验报告、体检报告或处方后可运行评估</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {records.map(rec => (
-            <RecordCard key={rec.id} rec={rec} onAssess={handleAssess} assessing={assessingId === rec.id} onEdit={onEditPackage} />
-          ))}
-        </div>
-      )}
+      {(() => {
+        const pkgs = records.filter(r => r.record_type === "symptom_package");
+        const selPkg = pkgs.find(p => p.id === selPkgId) || pkgs[0] || null;
+        const others = records.length - pkgs.length;
+        if (pkgs.length === 0) {
+          return (
+            <div className="rounded-xl border border-dashed p-10 text-center" style={{ borderColor: "var(--line)" }}>
+              <p className="text-sm" style={{ color: "var(--muted)" }}>暂无症状包</p>
+              <p className="text-xs mt-1" style={{ color: "var(--muted2)" }}>点右上「开始问诊」生成一次症状包后即可运行双盲评估</p>
+            </div>
+          );
+        }
+        return (
+          <div>
+            {/* 症状包下拉选择 */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm shrink-0" style={{ color: "var(--muted)" }}>症状包</span>
+              <select value={selPkg ? selPkg.id : ""} onChange={e => setSelPkgId(e.target.value)}
+                className="flex-1 rounded-lg px-3 py-2 text-sm border"
+                style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--paper)" }}>
+                {pkgs.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {(p.record_date || "—")} · {(p.extracted_zh || "").replace(/\s+/g, " ").slice(0, 28)}…
+                  </option>
+                ))}
+              </select>
+            </div>
+            {/* 当前症状包详情 */}
+            {selPkg && (
+              <div className="rounded-xl border p-4 mb-4" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>问诊症状包 · {selPkg.record_date}</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => onEditPackage(selPkg)} disabled={!!assessingId}
+                      className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-50"
+                      style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>编辑</button>
+                    <button onClick={() => handleAssess(selPkg)} disabled={!!assessingId}
+                      className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-50"
+                      style={{ background: "var(--teal-500)", color: "#fff" }}>
+                      {assessingId === selPkg.id ? "评估中…" : "运行双盲评估"}</button>
+                  </div>
+                </div>
+                <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--ink)" }}>{selPkg.extracted_zh}</p>
+                {others > 0 && <p className="text-xs mt-3 pt-2" style={{ color: "var(--muted2)", borderTop: "1px dashed var(--line)" }}>另有 {others} 条在档报告，评估时自动并入佐证</p>}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {error && (
         <div className="mt-5 rounded-lg p-4 text-sm" style={{ background: "var(--ochre-bg)", color: "var(--ochre)" }}>
@@ -1010,9 +1063,10 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
         </div>
       )}
 
-      <AssessProgress active={!!assessingId} />
-
-      <AssessmentResult result={result} />
+      {/* 评估结论：逐段流式（规则→A→B），完成后切最终结果 */}
+      <AssessmentResult result={result}
+        live={assessProg && assessProg.partials}
+        streaming={!!assessingId && !!(assessProg && assessProg.running)} />
 
       {editingPackage && (
         <EditPackageModal
@@ -1055,6 +1109,19 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [editingPackage, setEditingPackage] = useState(null);
   const [savingPackage, setSavingPackage] = useState(false);
+  const [assessProg, setAssessProg] = useState(null);   // 评估进度+流式部分结果（轮询 /progress/assess）
+
+  // 轮询评估进度（左栏阶段 + 中间流式结论共用此数据源）
+  useEffect(() => {
+    if (USE_MOCK) return;
+    let stop = false;
+    const poll = async () => {
+      try { const r = await fetch(`${API_BASE}/progress/assess`); if (r.ok && !stop) setAssessProg(await r.json()); } catch (e) {}
+    };
+    poll();
+    const id = setInterval(poll, 2500);
+    return () => { stop = true; clearInterval(id); };
+  }, []);
 
   // OIDC 初始化：处理登录回调或恢复已有会话
   useEffect(() => {
@@ -1195,7 +1262,7 @@ function App() {
 
   return (
     <div className="flex min-h-screen">
-      <MemberSidebar members={members} activeId={activeId} onSelect={setActiveId} />
+      <MemberSidebar members={members} activeId={activeId} onSelect={setActiveId} assessProg={assessProg} />
       <div className="flex-1">
         {loadErr && (
           <div className="m-6 p-4 rounded-lg text-sm" style={{ background: "var(--ochre-bg)", color: "var(--ochre)" }}>
@@ -1207,7 +1274,8 @@ function App() {
                                  editingPackage={editingPackage}
                                  savingPackage={savingPackage}
                                  onEditPackage={handleEditPackage}
-                                 onSavePackage={handleSavePackage} />}
+                                 onSavePackage={handleSavePackage}
+                                 assessProg={assessProg} />}
         {!active && !loadErr && (
           <div className="flex items-center justify-center h-full text-sm" style={{ color: "var(--muted)" }}>
             {members.length === 0 ? "暂无成员记录" : "请从左侧选择成员"}

@@ -242,7 +242,7 @@ async def reason_a2(patient_zh: str, guidelines: list[dict]) -> str:
 # 双盲编排 + 呈现层（纯代码）
 # ════════════════════════════════════════════════════════
 
-async def run_dual(conn, zh_patient_data: str, on_stage=None) -> dict:
+async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -> dict:
     """
     背靠背双盲评估（ARCHITECTURE §3）。同一份 A1 症状数据，A2 与 B 各自独立推理。
 
@@ -260,6 +260,11 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None) -> dict:
             try: on_stage(k)
             except Exception: pass
 
+    def _partial(patch):
+        if on_partial:
+            try: on_partial(patch)
+            except Exception: pass
+
     # 共享确定性层（规则只算一次；需英文指标抽取，复用 B 的翻译产物）
     _stage("translate_en")
     translated_en = await translate_to_en(zh_patient_data)
@@ -272,6 +277,7 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None) -> dict:
          "citation_id": h.citation_id, "severity": h.severity}
         for h in rule_hits
     ]
+    _partial({"rule_hits": rule_hits_dicts, "metrics": metrics})   # 规则先出
 
     # 流程 A2：国内指南 + llama 中文推理
     _stage("a2_retrieve")
@@ -279,6 +285,8 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None) -> dict:
     _stage("a2_reason")
     report_a_zh = await reason_a2(zh_patient_data, a_guidelines)
     sources_a = [g["citation_id"] for g in a_guidelines]
+    _partial({"report_a_zh": report_a_zh, "sources_a": sources_a,
+              "a_model": MODEL_A2_REASONING})                       # A 轨结论流出
 
     # 流程 B：国际指南 + llama4（路线不动）
     _stage("b_retrieve")
@@ -288,6 +296,8 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None) -> dict:
     _stage("b_translate")
     report_b_zh = await translate_to_zh(findings_en)
     sources_b = [g["citation_id"] for g in b_guidelines]
+    _partial({"report_b_zh": report_b_zh, "sources_b": sources_b,
+              "b_model": MODEL_REASONING})                          # B 轨结论流出
 
     return {
         "translated_en": translated_en,

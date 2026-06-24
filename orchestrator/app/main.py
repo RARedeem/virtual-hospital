@@ -360,7 +360,9 @@ async def assess(req: AssessRequest,
             # 评估阶段进度：run_dual 每进一阶段回调写进度，前端轮询 GET /progress/assess 展示
             progress_router_mod.assess_init()
             result = await pipeline.run_dual(
-                _ConnAdapter(conn), patient_zh, on_stage=progress_router_mod.assess_mark)
+                _ConnAdapter(conn), patient_zh,
+                on_stage=progress_router_mod.assess_mark,
+                on_partial=progress_router_mod.assess_partial)
             progress_router_mod.assess_done()
             async with conn.cursor() as cur:
                 await cur.execute(
