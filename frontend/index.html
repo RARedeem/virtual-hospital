@@ -114,6 +114,7 @@ async function apiAssess(memberId, recordId, zhData) {
       risk_sources: ["WHO 2019 DM", "ADA 2024", "NICE NG136"],
       report_a_zh: "1. 临床印象：2 型糖尿病、1 级高血压。\n2. 指南符合情况：依据《中国2型糖尿病防治指南（2020）》，空腹血糖 7.4 mmol/L 已达糖尿病诊断标准（≥7.0）；糖化血红蛋白 6.8% 亦超过 6.5%。依据《中国高血压防治指南（2024）》，收缩压 145 mmHg 达 1 级高血压（≥140）。\n3. 建议措施：完善口服葡萄糖耐量试验确诊，启动生活方式干预，必要时降糖降压治疗，并定期随访。",
       sources_a: ["中国2型糖尿病防治指南2020", "中国高血压防治指南2024"],
+      a_model: "llama3.3:70b", b_model: "llama4:16x17b",
       findings_en: "FINDINGS: Fasting plasma glucose 7.4 mmol/L; HbA1c 6.8%; systolic BP 145 mmHg.\nASSESSMENT: FPG and HbA1c both at/above diabetes diagnostic thresholds [WHO 2019 DM][ADA 2024]. SBP in stage 1 hypertension range [NICE NG136].\nRISK LEVEL: high\nLIMITATIONS: Single measurement; not a clinical diagnosis.",
       rule_hits: [
         { metric: "fasting_glucose_mmol_l", value: 7.4, conclusion: "空腹血糖达到或超过糖尿病诊断阈值（7.0 mmol/L）", citation_id: "WHO 2019 DM", severity: "high" },
@@ -299,9 +300,9 @@ function AssessmentResult({ result }) {
 
       {/* 循证解释 · 双盲并排（左 A 国内 / 右 B 国际，窄屏自动上下堆叠） */}
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-        <FlowTrack label="流程 A · 循证解释" sub="国内指南 · llama3.3"
+        <FlowTrack label="流程 A · 循证解释" sub={`国内指南 · ${(result.a_model || "llama3.3").split(":")[0]}`}
                    report_zh={result.report_a_zh} sources={result.sources_a} />
-        <FlowTrack label="流程 B · 循证解释" sub="国际指南 · llama4"
+        <FlowTrack label="流程 B · 循证解释" sub={`国际指南 · ${(result.b_model || "llama4").split(":")[0]}`}
                    report_zh={result.report_zh} sources={result.risk_sources} />
       </div>
 

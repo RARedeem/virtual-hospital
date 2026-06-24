@@ -64,6 +64,8 @@ class AssessResponse(BaseModel):
     findings_en: str       # 流程 B 英文中间结果，供前端折叠展示/审计
     rule_hits: list[dict]  # 两轨共享的确定性规则命中（双盲共同地基）
     metrics: dict          # 抽取的结构化指标
+    a_model: str = ""      # 流程 A 推理模型（前端标签动态显示，避免硬编码漂移）
+    b_model: str = ""      # 流程 B 推理模型
 
 
 # 上传报告的格式与大小约束（服务端二次校验，不信客户端 Content-Type 之外的声明）
@@ -378,6 +380,8 @@ async def assess(req: AssessRequest,
             findings_en=result["findings_en"],
             rule_hits=result["rule_hits"],
             metrics=result["extracted_metrics"],
+            a_model=result["a_model"],
+            b_model=result["b_model"],
         )
     except HTTPException:
         raise
