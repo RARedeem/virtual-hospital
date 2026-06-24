@@ -734,6 +734,10 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [selPkgId, setSelPkgId] = useState(null);   // 当前选中的症状包
+  const [pkgText, setPkgText] = useState("");        // 症状包文字框内容（可临时编辑，作用于本次评估）
+  const pkgs = records.filter(r => r.record_type === "symptom_package");
+  const selPkg = pkgs.find(p => p.id === selPkgId) || pkgs[0] || null;
+  useEffect(() => { setPkgText(selPkg ? (selPkg.extracted_zh || "") : ""); }, [selPkg && selPkg.id]);
 
   function startInterview() { setView("department"); setError(null); }
 
@@ -858,10 +862,10 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
     }
   }
 
-  async function handleAssess(rec) {
+  async function handleAssess(rec, overrideText) {
     setAssessingId(rec.id); setError(null); setResult(null);
     try {
-      const r = await apiAssess(member.id, rec.id, rec.extracted_zh);
+      const r = await apiAssess(member.id, rec.id, overrideText != null ? overrideText : rec.extracted_zh);
       setResult(r);
     } catch (e) {
       setError(e.message);
@@ -995,8 +999,8 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
 
   // ── 档案视图（默认） ──
   return (
-    <main className="flex-1 p-8 max-w-3xl">
-      <div className="flex items-baseline justify-between mb-1">
+    <main className="flex-1 p-8">
+      <div className="flex items-baseline justify-between mb-4">
         <div className="flex items-baseline gap-3">
           <h2 className="serif text-2xl" style={{ color: "var(--teal-900)" }}>{member.full_name}</h2>
           <span className="text-sm" style={{ color: "var(--muted)" }}>{member.relation} · {age(member.birth_date)}</span>
@@ -1007,55 +1011,41 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
           + 开始问诊
         </button>
       </div>
-      {(() => {
-        const pkgs = records.filter(r => r.record_type === "symptom_package");
-        const selPkg = pkgs.find(p => p.id === selPkgId) || pkgs[0] || null;
-        const others = records.length - pkgs.length;
-        if (pkgs.length === 0) {
-          return (
-            <div className="rounded-xl border border-dashed p-10 text-center" style={{ borderColor: "var(--line)" }}>
-              <p className="text-sm" style={{ color: "var(--muted)" }}>暂无症状包</p>
-              <p className="text-xs mt-1" style={{ color: "var(--muted2)" }}>点右上「开始问诊」生成一次症状包后即可运行双盲评估</p>
-            </div>
-          );
-        }
-        return (
-          <div>
-            {/* 症状包下拉选择 */}
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-sm shrink-0" style={{ color: "var(--muted)" }}>症状包</span>
-              <select value={selPkg ? selPkg.id : ""} onChange={e => setSelPkgId(e.target.value)}
-                className="flex-1 rounded-lg px-3 py-2 text-sm border"
-                style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--paper)" }}>
-                {pkgs.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {(p.record_date || "—")} · {(p.extracted_zh || "").replace(/\s+/g, " ").slice(0, 28)}…
-                  </option>
-                ))}
-              </select>
-            </div>
-            {/* 当前症状包详情 */}
-            {selPkg && (
-              <div className="rounded-xl border p-4 mb-4" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>问诊症状包 · {selPkg.record_date}</span>
-                  <div className="flex gap-2">
-                    <button onClick={() => onEditPackage(selPkg)} disabled={!!assessingId}
-                      className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-50"
-                      style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>编辑</button>
-                    <button onClick={() => handleAssess(selPkg)} disabled={!!assessingId}
-                      className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-50"
-                      style={{ background: "var(--teal-500)", color: "#fff" }}>
-                      {assessingId === selPkg.id ? "评估中…" : "运行双盲评估"}</button>
-                  </div>
-                </div>
-                <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--ink)" }}>{selPkg.extracted_zh}</p>
-                {others > 0 && <p className="text-xs mt-3 pt-2" style={{ color: "var(--muted2)", borderTop: "1px dashed var(--line)" }}>另有 {others} 条在档报告，评估时自动并入佐证</p>}
-              </div>
-            )}
+      {pkgs.length === 0 ? (
+        <div className="rounded-xl border border-dashed p-10 text-center" style={{ borderColor: "var(--line)" }}>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>暂无症状包</p>
+          <p className="text-xs mt-1" style={{ color: "var(--muted2)" }}>点右上「开始问诊」生成一次症状包后即可运行双盲评估</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border p-4 mb-5" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+          {/* 症状包：下拉选择 + 操作 */}
+          <div className="flex items-center gap-2 mb-2.5">
+            <span className="text-sm shrink-0" style={{ color: "var(--teal-700)" }}>症状包</span>
+            <select value={selPkg ? selPkg.id : ""} onChange={e => setSelPkgId(e.target.value)}
+              className="flex-1 rounded-lg px-3 py-1.5 text-sm border min-w-0"
+              style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--paper)" }}>
+              {pkgs.map(p => (
+                <option key={p.id} value={p.id}>{(p.record_date || "—")} · {(p.extracted_zh || "").replace(/\s+/g, " ").slice(0, 30)}…</option>
+              ))}
+            </select>
+            <button onClick={() => onEditPackage(selPkg)} disabled={!!assessingId}
+              className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-50 shrink-0"
+              style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>编辑/附件</button>
+            <button onClick={() => handleAssess(selPkg, pkgText)} disabled={!!assessingId || !pkgText.trim()}
+              className="text-sm px-4 py-1.5 rounded-lg font-medium disabled:opacity-50 shrink-0"
+              style={{ background: "var(--teal-500)", color: "#fff" }}>
+              {assessingId ? "评估中…" : "运行双盲评估"}</button>
           </div>
-        );
-      })()}
+          {/* 症状包文字框：受控高度 ≤1/3 屏，可临时编辑（作用于本次评估） */}
+          <textarea value={pkgText} onChange={e => setPkgText(e.target.value)} rows={5}
+            className="w-full rounded-lg px-3 py-2 text-sm leading-relaxed border"
+            style={{ borderColor: "var(--line)", color: "var(--ink)", background: "var(--paper)", maxHeight: "33vh", overflowY: "auto", resize: "vertical" }} />
+          <p className="text-xs mt-2" style={{ color: "var(--muted2)" }}>
+            可在框内临时增删，仅作用于本次评估；永久修改或加报告附件请用「编辑/附件」。
+            {records.length - pkgs.length > 0 && `　另有 ${records.length - pkgs.length} 条在档报告，评估时自动并入佐证。`}
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="mt-5 rounded-lg p-4 text-sm" style={{ background: "var(--ochre-bg)", color: "var(--ochre)" }}>
