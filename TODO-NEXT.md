@@ -5,14 +5,24 @@
 本文档为增量追加，早期章节的乐观结论可能被后续章节推翻。
 当任何记述冲突时，**以本摘要 + 时间最新章节为准**：
 
-- **系统范围**：v1 单流程评估系统 = 已跑通、质量 working well（本文档"已跑通"均指 v1）。
-  v2 双盲交叉验证架构 = 设计完成、**未实现**（详见 ARCHITECTURE.md）。
-- **翻译模型**：gemma4:31b（2026-06-14 升级，两个 translator 已重建）。
-  早期章节/README/HANDOFF 中的 gemma2:27b 为**旧值，作废**。
-- **G1（Meditron 结构化输出）**：**已解决**（2026-06-15，方向B简化prompt）。
-  中间 C 节"few-shot已完成"被 F/G 节推翻，最终 H 节简化prompt解决。终态见 H 节。
+- **系统范围**：**v2 双盲交叉验证已全栈落地并端到端实测**（2026-06-24）。v1 单流程 = 流程 B 的底子。
+  （早期章节"v2未实现"为旧状态，作废。详见下方 2026-06-24 阶段收尾 + ARCHITECTURE.md。）
+- **B 轨 reasoner = llama4:16x17b**（2026-06-24 三臂评测裁定，由 meditron 改版；meditron 已退役）。
+  翻译仍用定制 gemma4:31b（translator-zh-en/en-zh）。早期 gemma2:27b 为**旧值作废**。
+- **G1（Meditron 结构化输出）**：历史问题，meditron 已退役，不再相关。
 - **EAU 知识库切片数**：**474**（Docling 重摄取后）。早期 314 为 pdftotext 旧值，作废。
 - **文档纪律**：今后重大状态变更，须回头改旧章节或更新本摘要，不可只追加。
+
+### ▶ 2026-06-24 阶段收尾（v2 双盲精修 + reasoner 改版 + UI 重构）
+本阶段（13 笔提交）成果，以此为当前权威实况：
+- **reasoner 改版**：三臂对照评测（`eval/reasoner_ab.py`：meditron/llama3.3/llama4 同条件）→ meditron 幻觉/过诊出局，**B 轨改 llama4**（与 A2 的 llama3.3 架构异质 MoE vs dense = 真双盲）。翻译保留 gemma4（实测 llama3.3 翻译吐繁体+加戏）。见记忆 [[reasoner-meditron-vs-llama]] / [[rigid-pipeline-route]]（路线已改版）。
+- **症状包结构化**：`run_dual` 最前加 `structure_symptom_package`(llama3.3)，乱麻→结构化转诊摘要再喂推理（解耦理解格式/医学推理）。⚠ 确定性规则改从**原始数据**抽取（结构化曾致命中 5→0，已修）。
+- **国内库五科齐全**：`domestic_kb` = 高血压2024/糖尿病2020上下/帕金森第五版/BPH共识2025/慢性肾脏病2026（bge-m3 1024维，约束A例外）。
+- **前端**：深色 IDE 主题；评估等待→左栏实时阶段进度+计时；结论逐段流式(规则→A→B淡入)；报告结构化(标签块)+A/B双色；症状包下拉文字框(≤1/3屏)；结论占满全宽；模型标签后端动态驱动。
+- **合规上云**：全历史脱敏推送 GitHub 私有库 RARedeem/virtual-hospital（仅 master、PHI零残留、版权PDF退本地）。
+- **拓扑**：SYSTEM-TOPOLOGY.html 按实况重绘。
+- **本地安全网**：tag `backup-pre-scrub`(原始PHI历史) / `pre-reasoner-swap-20260624`(换llama4前)，仅本地、绝不推送。
+- **待办**：同型半胱氨酸确定性规则仍缺（见 I 节）；llama4 单次 /assess ~14min（批处理可容忍）。
 
 ### ▶ 2026-06-23 对账校准（活动状态实测，优先级最高）
 对真实容器/库做了一次"文档 vs 实况"对账，以下以**实测**为准，覆盖早期章节：
