@@ -2,100 +2,142 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>问诊实验台 · interview-lab</title>
 <style>
-  :root{--bg:#0e1413;--card:#1a2422;--line:#2a3631;--ink:#d7e3df;--teal:#34a99d;--teal7:#5fb6ab;--muted:#8ba29c;}
+  :root{--bg:#0e1413;--card:#1a2422;--line:#2a3631;--ink:#d7e3df;--teal:#34a99d;--teal7:#5fb6ab;--muted:#8ba29c;--warn:#e0916f;}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;height:100vh;display:flex;flex-direction:column}
-  header{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-  header b{color:var(--teal7);font-size:15px}
-  .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:2px 7px}
-  select,button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 10px;font-size:13px;cursor:pointer}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;height:100vh;display:flex;flex-direction:column;font-size:13px}
+  header{padding:8px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  header b{color:var(--teal7);font-size:14px;white-space:nowrap}
+  .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:2px 7px;white-space:nowrap}
+  select,button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:12px;cursor:pointer}
+  select{max-width:340px}
   select:focus{outline:none;border-color:var(--teal)}
   button.primary{background:var(--teal);color:#06110f;border:none;font-weight:600}
   button:disabled{opacity:.5;cursor:default}
-  #chat{flex:1;overflow-y:auto;padding:20px;max-width:840px;margin:0 auto;width:100%}
-  .msg{margin:10px 0;display:flex}
-  .msg.user{justify-content:flex-end}
-  .bubble{max-width:78%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.6;white-space:pre-wrap}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .seg button{border:none;border-radius:0;padding:5px 11px}
+  .seg button.on{background:rgba(52,169,157,.16);color:var(--teal7);font-weight:600}
+  /* 状态条：高密度 */
+  .stats{display:flex;gap:14px;padding:5px 16px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted);flex-wrap:wrap;background:#0c1110}
+  .stats b{color:var(--teal7);font-weight:600}
+  #chat{flex:1;overflow-y:auto;padding:18px;max-width:880px;margin:0 auto;width:100%}
+  .msg{margin:9px 0;display:flex}.msg.user{justify-content:flex-end}
+  .bubble{max-width:80%;padding:9px 13px;border-radius:13px;font-size:13.5px;line-height:1.6;white-space:pre-wrap}
   .user .bubble{background:var(--teal);color:#06110f}
   .ai .bubble{background:var(--card);border:1px solid var(--line)}
   .think{color:var(--muted);font-style:italic}
-  footer{border-top:1px solid var(--line);padding:12px 18px;max-width:840px;margin:0 auto;width:100%;display:flex;gap:10px}
-  textarea{flex:1;background:#0a1019;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:14px;resize:none;height:46px;font-family:inherit}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 6px 4px}
+  .chip{background:rgba(52,169,157,.10);border:1px solid var(--teal);color:var(--teal7);border-radius:16px;padding:5px 13px;font-size:13px;cursor:pointer}
+  .chip:hover{background:rgba(52,169,157,.22)}
+  footer{border-top:1px solid var(--line);padding:10px 16px;max-width:880px;margin:0 auto;width:100%;display:flex;gap:9px}
+  textarea{flex:1;background:#0a1019;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:13.5px;resize:none;height:42px;font-family:inherit}
   textarea:focus{outline:none;border-color:var(--teal)}
   ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 </style></head>
 <body>
 <header>
-  <b>问诊实验台</b>
-  <span class="tag">隔离沙盒 · :8010</span>
-  <select id="model"></select>
+  <b>问诊实验台</b><span class="tag">隔离沙盒 · :8010</span>
+  <select id="model" title="模型 · 体积 · 约束A合规"></select>
   <select id="dept">
-    <option value="cardiology">心血管内科</option>
-    <option value="endocrinology">内分泌科</option>
-    <option value="urology" selected>泌尿外科</option>
-    <option value="neurology">神经内科</option>
+    <option value="cardiology">心血管内科</option><option value="endocrinology">内分泌科</option>
+    <option value="urology" selected>泌尿外科</option><option value="neurology">神经内科</option>
   </select>
+  <span class="seg" id="mode">
+    <button data-m="chat" class="on">纯 chat</button><button data-m="cards">chat+选项卡</button>
+  </span>
   <button id="reset">＋ 新问诊</button>
-  <span class="tag" id="status">就绪</span>
 </header>
+<div class="stats" id="stats">
+  <span>模型 <b id="s-model">—</b></span><span>体积 <b id="s-size">—</b></span><span>合规 <b id="s-ok">—</b></span>
+  <span>模式 <b id="s-mode">纯chat</b></span><span>轮次 <b id="s-turns">0</b></span>
+  <span>上轮 <b id="s-last">—</b></span><span>速度 <b id="s-tps">—</b></span><span>累计 <b id="s-cum">0.0s</b></span>
+</div>
 <div id="chat"></div>
 <footer>
   <textarea id="input" placeholder="以患者身份回答…（Enter 发送，Shift+Enter 换行）"></textarea>
   <button class="primary" id="send">发送</button>
 </footer>
 <script>
-const $ = s => document.querySelector(s);
-let messages = [];   // {role:'user'|'assistant', content}
-let busy = false;
+const $=s=>document.querySelector(s);
+let messages=[], busy=false, mode="chat", turns=0, cum=0, modelMeta={};
 
-async function loadModels() {
-  try {
-    const r = await fetch("/models"); const d = await r.json();
-    const sel = $("#model"); sel.innerHTML = "";
-    // ⚠ 约束A：问诊要上线须选非中国大陆机构模型。Qwen/Huatuo 等仅供实验对照、不可上线。
-    const banned = /qwen|huatuo|deepseek|glm|bge|chatglm/i;
-    (d.models||[]).forEach(m => {
-      const o = document.createElement("option"); o.value=m;
-      o.textContent = (banned.test(m) ? "⚠大陆· " : "") + m.replace(":latest","");
+async function loadModels(){
+  try{
+    const d=await (await fetch("/models")).json();
+    const sel=$("#model"); sel.innerHTML="";
+    (d.models||[]).forEach(m=>{
+      modelMeta[m.name]=m;
+      const o=document.createElement("option"); o.value=m.name;
+      o.textContent=`${m.name.replace(":latest","")} · ${m.gb}G · ${m.ok?"✓":"⚠大陆"}`;
       sel.appendChild(o);
     });
-    // 默认选小且合规：gemma4:e4b → openbiollm → 其它非禁
-    const pref = [...sel.options].find(o=>/gemma4:e4b/i.test(o.value))
-              || [...sel.options].find(o=>/openbiollm/i.test(o.value))
-              || [...sel.options].find(o=>!banned.test(o.value));
-    if(pref) sel.value=pref.value;
-  } catch(e){ $("#status").textContent="模型列表加载失败"; }
+    const pref=[...sel.options].find(o=>/gemma4:e4b/i.test(o.value))
+            ||[...sel.options].find(o=>modelMeta[o.value]&&modelMeta[o.value].ok);
+    if(pref){sel.value=pref.value;}
+    syncModelStats();
+  }catch(e){ $("#s-model").textContent="加载失败"; }
+}
+function syncModelStats(){
+  const m=modelMeta[$("#model").value]||{};
+  $("#s-model").textContent=($("#model").value||"—").replace(":latest","");
+  $("#s-size").textContent=m.gb?m.gb+"G":"—";
+  $("#s-ok").textContent=m.ok===undefined?"—":(m.ok?"✓ 合规":"⚠ 大陆·不可上线");
+  $("#s-ok").style.color=m.ok===false?"var(--warn)":"var(--teal7)";
 }
 
-function render() {
-  const c = $("#chat"); c.innerHTML = "";
-  messages.forEach(m => {
-    const w = document.createElement("div"); w.className = "msg " + (m.role==="user"?"user":"ai");
-    const b = document.createElement("div"); b.className="bubble"; b.textContent=m.content; w.appendChild(b); c.appendChild(w);
+// 从 AI 回复里抽【选项】a | b | c
+function parseChips(text){
+  const mt=text.match(/【选项】\s*(.+)/);
+  if(!mt) return {body:text, chips:[]};
+  const chips=mt[1].split(/[|｜]/).map(s=>s.trim()).filter(Boolean);
+  return {body:text.replace(/\n?【选项】.*/,"").trim(), chips};
+}
+
+function render(){
+  const c=$("#chat"); c.innerHTML="";
+  messages.forEach((m,i)=>{
+    const isLast = i===messages.length-1;
+    const w=document.createElement("div"); w.className="msg "+(m.role==="user"?"user":"ai");
+    const b=document.createElement("div"); b.className="bubble";
+    if(m.role==="assistant" && mode==="cards"){
+      const {body,chips}=parseChips(m.content); b.textContent=body; w.appendChild(b); c.appendChild(w);
+      if(isLast && chips.length){
+        const cd=document.createElement("div"); cd.className="chips";
+        chips.forEach(ch=>{const x=document.createElement("button");x.className="chip";x.textContent=ch;x.onclick=()=>turn(ch);cd.appendChild(x);});
+        c.appendChild(cd);
+      }
+    }else{ b.textContent=m.content; w.appendChild(b); c.appendChild(w); }
   });
-  if (busy) { const w=document.createElement("div");w.className="msg ai";w.innerHTML='<div class="bubble think">主治医师正在思考…</div>';c.appendChild(w); }
-  c.scrollTop = c.scrollHeight;
+  if(busy){const w=document.createElement("div");w.className="msg ai";w.innerHTML='<div class="bubble think">主治医师正在思考…</div>';c.appendChild(w);}
+  c.scrollTop=c.scrollHeight;
 }
 
-async function turn(userText) {
-  if (busy) return;
-  if (userText) messages.push({role:"user", content:userText});
-  busy = true; render(); $("#send").disabled=true; $("#status").textContent="推理中…";
-  const t0 = Date.now();
-  try {
-    const r = await fetch("/chat", {method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({messages, model: $("#model").value, department: $("#dept").value})});
-    const d = await r.json();
-    if (d.reply) messages.push({role:"assistant", content:d.reply});
-    else messages.push({role:"assistant", content:"[错误] "+(d.error||"无回复")});
-    $("#status").textContent = `上轮 ${((Date.now()-t0)/1000).toFixed(1)}s`;
-  } catch(e){ messages.push({role:"assistant", content:"[请求失败] "+e.message}); $("#status").textContent="失败"; }
+async function turn(userText){
+  if(busy) return;
+  if(userText) messages.push({role:"user",content:userText});
+  busy=true; render(); $("#send").disabled=true;
+  try{
+    const d=await (await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({messages,model:$("#model").value,department:$("#dept").value,mode})})).json();
+    if(d.reply){messages.push({role:"assistant",content:d.reply}); turns++;}
+    else messages.push({role:"assistant",content:"[错误] "+(d.error||"无回复")});
+    const s=d.stats||{}; cum+=(s.total_s||0);
+    $("#s-turns").textContent=turns;
+    $("#s-last").textContent=(s.total_s||0)+"s";
+    $("#s-tps").textContent=(s.tps||0)+" tok/s";
+    $("#s-cum").textContent=cum.toFixed(1)+"s";
+  }catch(e){messages.push({role:"assistant",content:"[请求失败] "+e.message});}
   busy=false; render(); $("#send").disabled=false; $("#input").focus();
 }
 
-$("#send").onclick = () => { const v=$("#input").value.trim(); if(v){ $("#input").value=""; turn(v);} };
-$("#input").addEventListener("keydown", e => { if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#send").click();} });
-$("#reset").onclick = () => { messages=[]; render(); $("#status").textContent="就绪"; turn(null); };  // 空轮→医师先开口问主诉
+$("#send").onclick=()=>{const v=$("#input").value.trim();if(v){$("#input").value="";turn(v);}};
+$("#input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#send").click();}});
+$("#model").onchange=syncModelStats;
+$("#mode").querySelectorAll("button").forEach(btn=>btn.onclick=()=>{
+  mode=btn.dataset.m; $("#mode").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b===btn));
+  $("#s-mode").textContent=mode==="cards"?"chat+选项卡":"纯chat"; reset();
+});
+function reset(){messages=[];turns=0;cum=0;$("#s-turns").textContent=0;$("#s-cum").textContent="0.0s";$("#s-last").textContent="—";$("#s-tps").textContent="—";render();turn(null);}
+$("#reset").onclick=reset;
 loadModels().then(()=>turn(null));
 </script>
 </body></html>

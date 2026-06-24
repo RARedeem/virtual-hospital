@@ -12,8 +12,17 @@
     python3 interview-lab/lab.py
 然后浏览器开 http://localhost:8010
 """
-import json, os, urllib.request
+import json, os, re, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# 约束A：中国大陆机构模型（仅供实验对照，不可上线）
+BANNED = re.compile(r"qwen|huatuo|deepseek|glm|chatglm|baichuan|internlm|\byi\b|bge|ernie", re.I)
+
+# 选项卡模式追加指令：让模型在问题后给可点选项（hybrid：chat + chips）
+OPTIONS_INSTRUCTION = (
+    "\n\n【选项卡模式】每次提问后必须另起一行，用 `【选项】选项1 | 选项2 | 选项3` 格式，"
+    "给出 3-6 个该问题最常见的简短备选答案（每个≤8字），供患者快速点选；患者也可自由作答。"
+    "输出【问诊小结】时不给选项。")
 
 OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 PORT = int(os.environ.get("LAB_PORT", "8010"))
@@ -49,12 +58,16 @@ def ollama_chat(model, messages):
     body = json.dumps({"model": model, "messages": messages, "stream": False}).encode()
     req = urllib.request.Request(f"{OLLAMA}/api/chat", data=body, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=300) as r:
-        return json.load(r).get("message", {}).get("content", "").strip()
+        return json.load(r)   # 返回完整响应（含 message + 计时/token 统计）
 
 
 def ollama_models():
     with urllib.request.urlopen(f"{OLLAMA}/api/tags", timeout=15) as r:
-        return [m["name"] for m in json.load(r).get("models", [])]
+        out = []
+        for m in json.load(r).get("models", []):
+            n = m["name"]
+            out.append({"name": n, "gb": round(m.get("size", 0) / 1e9, 1), "ok": not BANNED.search(n)})
+        return sorted(out, key=lambda x: x["gb"])   # 小模型在前
 
 
 class H(BaseHTTPRequestHandler):
@@ -85,11 +98,17 @@ class H(BaseHTTPRequestHandler):
         req = json.loads(self.rfile.read(n) or b"{}")
         model = req.get("model") or "gemma4:e4b"   # 默认小模型（谷歌，约束A合规）
         dept = DEPTS.get(req.get("department"), "全科")
-        history = req.get("messages", [])   # [{role, content}]
-        sys = {"role": "system", "content": FRAMEWORK.format(dept=dept)}
+        mode = req.get("mode", "chat")              # chat | cards
+        history = req.get("messages", [])           # [{role, content}]
+        sysprompt = FRAMEWORK.format(dept=dept) + (OPTIONS_INSTRUCTION if mode == "cards" else "")
+        sys = {"role": "system", "content": sysprompt}
         try:
-            reply = ollama_chat(model, [sys] + history)
-            self._send(200, json.dumps({"reply": reply}))
+            resp = ollama_chat(model, [sys] + history)
+            content = resp.get("message", {}).get("content", "").strip()
+            ec, ed = resp.get("eval_count", 0), resp.get("eval_duration", 0) or 0
+            stats = {"tok": ec, "tps": round(ec / (ed / 1e9), 1) if ed else 0,
+                     "total_s": round(resp.get("total_duration", 0) / 1e9, 1)}
+            self._send(200, json.dumps({"reply": content, "stats": stats}))
         except Exception as e:
             self._send(500, json.dumps({"error": str(e)}))
 
