@@ -44,6 +44,18 @@
   .serif { font-family: "Georgia", "Songti SC", serif; }
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--teal-700); }
+  /* ── 微交互（全站友好化）── */
+  button:not(:disabled) { transition: background .15s, transform .12s, border-color .15s, box-shadow .15s, opacity .15s; cursor: pointer; }
+  button:not(:disabled):active { transform: translateY(1px); }
+  .vh-lift { transition: transform .15s, border-color .15s, box-shadow .15s; }
+  .vh-lift:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--teal-500) !important; box-shadow: 0 6px 20px rgba(0,0,0,.28); }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--teal-500) !important; box-shadow: 0 0 0 3px rgba(52,169,157,.18); }
+  @keyframes vh-blink { 0%,80%,100%{opacity:.25} 40%{opacity:1} }
+  .vh-dot { display:inline-block; width:.42em; height:.42em; border-radius:50%; background:var(--muted); margin:0 .09em; animation:vh-blink 1.2s infinite; }
+  .vh-dot:nth-child(2){animation-delay:.2s} .vh-dot:nth-child(3){animation-delay:.4s}
+  @keyframes vh-fade-in { from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:none} }
+  .vh-fade { animation: vh-fade-in .25s ease-out; }
 </style>
 </head>
 <body>
@@ -201,7 +213,7 @@ function MemberSidebar({ members, activeId, onSelect }) {
 function RecordCard({ rec, onAssess, assessing, onEdit }) {
   const isSymptomPackage = rec.record_type === 'symptom_package';
   return (
-    <div className="rounded-xl border p-4" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+    <div className="vh-lift rounded-xl border p-4" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
       <div className="flex items-start justify-between">
         <div>
           <span className="text-xs px-2 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>
@@ -307,7 +319,7 @@ function AssessProgress({ active }) {
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
   return (
-    <div className="mt-5 rounded-xl border p-5" style={{ borderColor: "var(--teal-100)", background: "var(--teal-50)" }}>
+    <div className="vh-fade mt-5 rounded-xl border p-5" style={{ borderColor: "var(--teal-100)", background: "var(--teal-50)" }}>
       <div className="flex items-center justify-between mb-1">
         <h3 className="serif text-lg" style={{ color: "var(--teal-900)" }}>双盲评估进行中…</h3>
         <span className="text-sm tabular-nums" style={{ color: "var(--teal-700)" }}>{mm}:{ss}</span>
@@ -337,7 +349,7 @@ function AssessProgress({ active }) {
 function AssessmentResult({ result }) {
   if (!result) return null;
   return (
-    <div className="mt-5 rounded-xl border p-5" style={{ borderColor: "var(--teal-100)", background: "var(--teal-50)" }}>
+    <div className="vh-fade mt-5 rounded-xl border p-5" style={{ borderColor: "var(--teal-100)", background: "var(--teal-50)" }}>
       <h3 className="serif text-lg mb-1" style={{ color: "var(--teal-900)" }}>评估报告</h3>
       <p className="text-xs mb-4" style={{ color: "var(--muted2)" }}>背靠背双盲交叉验证 · 两轨独立推理、并排呈现，判断权归人</p>
 
@@ -855,7 +867,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
       <div className="grid grid-cols-2 gap-4">
         {DEPARTMENTS.map(d => (
           <button key={d.key} onClick={() => chooseDept(d.key)} disabled={busy}
-            className="rounded-xl border p-6 text-left transition-colors disabled:opacity-50"
+            className="vh-lift rounded-xl border p-6 text-left disabled:opacity-50"
             style={{ borderColor: "var(--line)", background: "var(--card)" }}>
             <div className="text-3xl mb-3">{d.icon}</div>
             <div className="font-medium text-base mb-1" style={{ color: "var(--teal-900)" }}>{d.label}</div>
@@ -881,7 +893,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
         </div>
         <div className="flex-1 overflow-y-auto px-8 py-6 flex flex-col gap-3">
           {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div key={i} className={`flex vh-fade ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className="max-w-md rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-line"
                 style={{
                   background: m.role === "user" ? "var(--teal-500)" : "var(--card)",
@@ -893,9 +905,10 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
             </div>
           ))}
           {busy && (
-            <div className="flex justify-start">
-              <div className="rounded-2xl px-4 py-3 text-sm" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--muted)" }}>
-                AI 正在回复…
+            <div className="flex justify-start vh-fade">
+              <div className="rounded-2xl px-4 py-3 text-sm flex items-center gap-2" style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--muted)" }}>
+                <span>主治医生正在思考</span>
+                <span className="vh-dot"></span><span className="vh-dot"></span><span className="vh-dot"></span>
               </div>
             </div>
           )}
@@ -944,7 +957,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
         ) : (
           <div className="space-y-2.5">
             {records.map(rec => (
-              <div key={rec.id} className="rounded-lg border p-2.5" style={{ borderColor: "var(--line)" }}>
+              <div key={rec.id} className="vh-lift rounded-lg border p-2.5" style={{ borderColor: "var(--line)" }}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--teal-50)", color: "var(--teal-700)" }}>
                     {RECORD_TYPE_LABEL[rec.record_type] || rec.record_type}
