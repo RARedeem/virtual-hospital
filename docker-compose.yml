@@ -93,16 +93,19 @@ services:
       - MINIO_ENDPOINT=minio:9000
       - MINIO_USER=${MINIO_USER:-vhminio}
       - MINIO_PASSWORD=${MINIO_PASSWORD}
-      # ★ 刚性约束导则（与约束 A/B 同级，不可动摇）：评估推理链路必须为
-      #   gemma4:31b 汉译英(translator-zh-en) → meditron:70b → gemma4:31b 英译汉(translator-en-zh)。
-      #   严禁把 MODEL_TRANSLATE/BACK 换成 gemma2 等非 gemma4:31b 模型。
+      # ★ 流程 B 推理路线（2026-06-24 经三臂评测 + 架构师裁定，由旧 meditron 改版）：
+      #   gemma4 汉译英(translator-zh-en) → nomic 检索国际指南 → llama4:16x17b 循证推理 → gemma4 英译汉(translator-en-zh)。
+      #   退役 meditron(评测证其幻觉/过诊/抄few-shot)；reasoner 换 llama4(质量略胜 llama3.3、与 A2 异质→真双盲)。
+      #   翻译【仍用定制 gemma4 翻译器】：全链路实测 llama3.3 翻译会吐繁体+"Here is the translation:"前缀，
+      #     定制 gemma4(简体调校、守纪律)更可靠——单句对照看着等价，真管道里才露馅。
+      #   keep_alive 仍 0：多大模型无法共驻，守显存纪律防累积 OOM；B 批处理延迟可容忍。
+      #   依据见记忆 reasoner-meditron-vs-llama / rigid-pipeline-route。
       - MODEL_TRANSLATE=translator-zh-en
       - MODEL_TRANSLATE_BACK=translator-en-zh
-      - MODEL_REASONING=meditron:70b
+      - MODEL_REASONING=llama4:16x17b
       - MODEL_EMBED=nomic-embed-text:v1.5
-      # 流程 A2（双盲另一轨，与上面 B 路线并排、互不干涉）：
-      #   约束 A 例外——bge-m3(北京智源)仅限流程 A 国内指南检索；llama3.3 中文原生推理。
-      #   严禁把 bge-m3/llama3.3 接入翻译或流程 B 任何环节。见 ARCHITECTURE §2。
+      # 流程 A2（双盲另一轨）：约束 A 例外——bge-m3(北京智源)仅限流程 A 国内指南检索（见 ARCHITECTURE §2）。
+      #   A1 问诊(交互) 与 A2 推理 均 llama3.3:70b。
       - MODEL_A2_REASONING=llama3.3:70b
       - MODEL_EMBED_CN=bge-m3
       # 代理隔离：内部调用(ollama/postgres/minio/authentik)必须直连，绝不经本机 7890 代理

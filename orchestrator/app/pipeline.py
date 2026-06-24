@@ -49,7 +49,7 @@ def _terminology_hint() -> str:
 
 
 async def translate_to_en(zh_text: str) -> str:
-    """步骤 1：汉译英，注入术语表。"""
+    """步骤 1：汉译英，注入术语表。用定制 gemma4 翻译器原本调校的简洁 prompt。"""
     prompt = f"{_terminology_hint()}\nTranslate to English:\n{zh_text}"
     return await oc.generate(MODEL_TRANSLATE, prompt)
 
@@ -136,7 +136,7 @@ async def reason(patient_en: str, guidelines: list[dict],
 
 
 async def translate_to_zh(en_report: str) -> str:
-    """步骤 4：英译汉输出。"""
+    """步骤 4：英译汉输出。用定制 gemma4 翻译器原本调校的简洁 prompt（简体、守纪律）。"""
     return await oc.generate(MODEL_TRANSLATE_BACK, f"Translate to Chinese:\n{en_report}")
 
 

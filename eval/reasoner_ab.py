@@ -20,9 +20,14 @@ from app.main import _ConnAdapter
 PG_DSN = os.environ["PG_DSN"]
 OUT_JSON = "/tmp/reasoner_ab.json"
 
-MEDITRON = os.environ.get("MODEL_REASONING", "meditron:70b")
-LLAMA = os.environ.get("MODEL_A2_REASONING", "llama3.3:70b")
-WARM = 600  # keep_alive 秒：让单个 70B 在跑完一批病例期间常驻，省重载
+# 三臂候选 reasoner（key→ollama 模型名）。llama4:16x17b=67G＞48G显存，会 CPU offload，
+# 本评测正是要实测它的质量与延迟代价（ARCHITECTURE §6.4 红线）。
+MODELS = {
+    "meditron": "meditron:70b",
+    "llama3.3": "llama3.3:70b",
+    "llama4":   "llama4:16x17b",
+}
+WARM = 600  # keep_alive 秒：让模型在跑完一批病例期间常驻，省重载
 
 # 4 例：机械阈值 / 专科对标 / 标准推理 / 边界陷阱
 CASES = {
@@ -84,44 +89,37 @@ async def main():
                              "rules": [h.conclusion for h in hits]}
             print(f"  [{name}] 证据来源={results[name]['sources']} 规则命中={len(hits)}", flush=True)
 
-        # Phase 1：meditron 跑完所有例（常驻）
-        print(f"\n=== Phase 1：reasoner = {MEDITRON}（常驻 warm）===", flush=True)
-        for name in CASES:
-            t = time.time()
-            msgs = build_messages(results[name]["en"], results[name]["guidelines"])
-            out = await oc.chat(MEDITRON, msgs, options=pipeline.REASONING_OPTIONS, keep_alive=WARM)
-            results[name]["meditron_en"] = out
-            results[name]["meditron_s"] = round(time.time() - t, 1)
-            print(f"  [{name}] {results[name]['meditron_s']}s", flush=True)
-        await oc.generate(MEDITRON, "x", keep_alive=0)  # 卸载 meditron 腾显存
+        # Phase 1：逐 reasoner warm-batch 跑完所有例（一个模型常驻跑完一批再换下一个，省重载）
+        for key, model in MODELS.items():
+            print(f"\n=== reasoner = {key} ({model})（常驻 warm）===", flush=True)
+            for name in CASES:
+                t = time.time()
+                msgs = build_messages(results[name]["en"], results[name]["guidelines"])
+                out = await oc.chat(model, msgs, options=pipeline.REASONING_OPTIONS, keep_alive=WARM)
+                results[name][f"{key}_en"] = out
+                results[name][f"{key}_s"] = round(time.time() - t, 1)
+                print(f"  [{name}] {results[name][f'{key}_s']}s", flush=True)
+            await oc.generate(model, "x", keep_alive=0)  # 卸载该模型腾显存给下一个
 
-        # Phase 2：llama3.3 跑完所有例（常驻）
-        print(f"\n=== Phase 2：reasoner = {LLAMA}（常驻 warm）===", flush=True)
+        # Phase 2：各 reasoner 的英文结论回译中文（gemma4）
+        print(f"\n=== 英译汉（gemma4）===", flush=True)
         for name in CASES:
-            t = time.time()
-            msgs = build_messages(results[name]["en"], results[name]["guidelines"])
-            out = await oc.chat(LLAMA, msgs, options=pipeline.REASONING_OPTIONS, keep_alive=WARM)
-            results[name]["llama_en"] = out
-            results[name]["llama_s"] = round(time.time() - t, 1)
-            print(f"  [{name}] {results[name]['llama_s']}s", flush=True)
-        await oc.generate(LLAMA, "x", keep_alive=0)
-
-        # Phase 3：两轨英文结论各自回译中文（gemma4）
-        print(f"\n=== Phase 3：英译汉（gemma4）===", flush=True)
-        for name in CASES:
-            results[name]["meditron_zh"] = await pipeline.translate_to_zh(results[name]["meditron_en"])
-            results[name]["llama_zh"] = await pipeline.translate_to_zh(results[name]["llama_en"])
+            for key in MODELS:
+                results[name][f"{key}_zh"] = await pipeline.translate_to_zh(results[name][f"{key}_en"])
 
     with open(OUT_JSON, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
-    # 并排打印
-    print("\n\n############ 对照结果（meditron vs llama3.3）############", flush=True)
+    # 并排打印（三臂）
+    print(f"\n\n############ 三臂对照：{' vs '.join(MODELS)} ############", flush=True)
     for name, r in results.items():
         print(f"\n{'='*70}\n■ 病例：{name}")
         print(f"  证据来源：{r['sources']}  |  规则命中：{r['rules']}")
-        print(f"\n— meditron:70b（{r['meditron_s']}s）—\n{r['meditron_zh']}")
-        print(f"\n— llama3.3:70b（{r['llama_s']}s）—\n{r['llama_zh']}")
+        for key in MODELS:
+            print(f"\n— {key} ({MODELS[key]}，{r[f'{key}_s']}s）—\n{r[f'{key}_zh']}")
+    print("\n=== 各模型总耗时 ===")
+    for key in MODELS:
+        print(f"  {key}: {round(sum(r[f'{key}_s'] for r in results.values()),1)}s")
     print(f"\nJSON 已存 {OUT_JSON}")
 
 asyncio.run(main())
