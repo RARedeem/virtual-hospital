@@ -245,17 +245,40 @@ function cleanInlineMath(text) {
 const DISCLAIMER_1 = "本系统基于人工智能模型对健康数据进行循证参考分析，其输出内容不构成医学诊断、医疗建议或处方意见。任何健康相关决策均应以具有执业资格的医疗专业人员的当面判断为准。使用本系统不构成医患关系，亦不可替代、推迟或取消任何必要的医疗就诊。";
 const DISCLAIMER_2 = "本系统运行于本地消费级硬件，受算力限制，单次评估可能持续数分钟至三十分钟。响应时间不代表评估质量，较长处理时间属正常运行状态。";
 
+// 把 "1.临床印象：… 2.指南符合：… 3.建议：…" 解析为带标签的结构块
+function parseSections(text) {
+  const t = (cleanInlineMath(text) || "").trim();
+  if (!t) return null;
+  const re = /(?:^|\n)\s*\d+\s*[\.、]\s*([^：:\n]{2,14})\s*[：:]\s*([\s\S]*?)(?=\n\s*\d+\s*[\.、]\s*[^：:\n]{2,14}\s*[：:]|$)/g;
+  const out = []; let m;
+  while ((m = re.exec(t)) !== null) out.push({ label: m[1].trim(), body: m[2].trim() });
+  return out.length >= 2 ? out : null;
+}
+
 // 单条循证推理轨（流程 A 或 B）——并排双盲的一栏
-function FlowTrack({ label, sub, report_zh, sources }) {
+function FlowTrack({ label, sub, report_zh, sources, accent }) {
+  const secs = parseSections(report_zh);
   return (
-    <div className="rounded-lg p-3" style={{ background: "var(--card)", border: "1px solid var(--teal-100)" }}>
-      <div className="text-xs font-medium mb-2 flex items-center gap-1.5" style={{ color: "var(--teal-700)" }}>
-        <span className="inline-block w-2 h-2 rounded-full border" style={{ borderColor: "var(--teal-500)" }}></span>
+    <div className="rounded-lg p-3.5 transition-colors" style={{ background: "var(--card)", border: "1px solid var(--teal-100)", borderTop: `2px solid ${accent || "var(--teal-500)"}` }}>
+      <div className="text-xs font-medium mb-2.5 flex items-center gap-1.5" style={{ color: "var(--teal-700)" }}>
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: accent || "var(--teal-500)" }}></span>
         {label}
         <span className="font-normal" style={{ color: "var(--muted2)" }}>· {sub}</span>
       </div>
-      <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--ink)" }}>{cleanInlineMath(report_zh)}</p>
-      <div className="flex flex-wrap gap-1.5 mt-2">
+      {secs ? (
+        <div className="space-y-2.5">
+          {secs.map((s, i) => (
+            <div key={i}>
+              <span className="text-xs px-1.5 py-0.5 rounded mr-1.5 align-middle" style={{ background: "var(--teal-100)", color: "var(--teal-700)", fontWeight: 600 }}>{s.label}</span>
+              <span className="text-sm leading-relaxed" style={{ color: "var(--ink)" }}>{s.body}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "var(--ink)" }}>{cleanInlineMath(report_zh)}</p>
+      )}
+      <div className="flex flex-wrap gap-1.5 mt-3 pt-2.5" style={{ borderTop: "1px dashed var(--line)" }}>
+        <span className="text-xs" style={{ color: "var(--muted2)" }}>来源</span>
         {[...new Set(sources || [])].map((s, i) => (
           <span key={i} className="text-xs px-2 py-0.5 rounded" style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>{s}</span>
         ))}
@@ -347,9 +370,9 @@ function AssessmentResult({ result }) {
       {/* 循证解释 · 双盲并排（左 A 国内 / 右 B 国际，窄屏自动上下堆叠） */}
       <div className="grid gap-3 mb-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
         <FlowTrack label="流程 A · 循证解释" sub={`国内指南 · ${(result.a_model || "llama3.3").split(":")[0]}`}
-                   report_zh={result.report_a_zh} sources={result.sources_a} />
+                   report_zh={result.report_a_zh} sources={result.sources_a} accent="var(--teal-500)" />
         <FlowTrack label="流程 B · 循证解释" sub={`国际指南 · ${(result.b_model || "llama4").split(":")[0]}`}
-                   report_zh={result.report_zh} sources={result.risk_sources} />
+                   report_zh={result.report_zh} sources={result.risk_sources} accent="#6b9bd1" />
       </div>
 
       {/* 英文中间结果折叠（流程 B 审计溯源） */}
