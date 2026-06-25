@@ -1,0 +1,37 @@
+{
+  "code": "cardiology",
+  "name": "心血管内科",
+  "order": 1,
+  "_doc": "按心血管领域铺开：很多心脏病不以'胸痛'起病（无症状瓣膜病/先心、查体杂音、心电图/超声偶发异常、晕厥），给非典型/无症状表现入口。",
+  "assoc": ["胸痛", "胸闷", "心悸", "气短", "夜间憋醒", "晕厥", "下肢水肿", "发绀"],
+  "sections": [
+    {"title": "就诊缘由", "fields": [
+      {"key": "发现方式", "label": "问题如何发现", "type": "single",
+       "options": ["因症状就诊", "体检发现杂音/心电图异常", "外院超声/CT发现", "随访复查"]}]},
+    {"title": "胸部症状", "fields": [
+      {"key": "胸痛", "label": "胸痛", "type": "single",
+       "options": ["无", "劳力性", "静息/夜间", "持续不缓解"]},
+      {"key": "胸痛性质", "label": "胸痛性质", "type": "single",
+       "options": ["压榨/闷胀", "针刺", "烧灼", "刀割撕裂"]},
+      {"key": "胸闷", "label": "胸闷", "type": "single", "options": ["无", "有"]},
+      {"key": "心悸", "label": "心悸 / 心律", "type": "single",
+       "options": ["无", "阵发", "持续", "漏跳感"]}]},
+    {"title": "活动耐量 / 呼吸", "fields": [
+      {"key": "活动耐量", "label": "活动耐量", "type": "single",
+       "options": ["正常", "平地快走气短", "轻微活动即喘", "静息也喘"]},
+      {"key": "夜间呼吸", "label": "夜间憋醒 / 端坐呼吸", "type": "single", "options": ["无", "有"]},
+      {"key": "气短", "label": "气短", "type": "single", "options": ["无", "活动后", "静息"]}]},
+    {"title": "晕厥 / 脑供血", "fields": [
+      {"key": "晕厥", "label": "晕厥", "type": "single", "options": ["无", "先兆/黑朦", "意识丧失"]},
+      {"key": "头晕", "label": "头晕 / 乏力", "type": "single", "options": ["无", "有"]}]},
+    {"title": "全身 / 体征", "fields": [
+      {"key": "下肢水肿", "label": "下肢水肿", "type": "single", "options": ["无", "晨轻暮重", "持续"]},
+      {"key": "发绀", "label": "口唇/甲床发绀", "type": "single", "options": ["无", "有"]},
+      {"key": "杵状指", "label": "杵状指", "type": "single", "options": ["无", "有"]},
+      {"key": "血压", "label": "血压", "type": "single", "options": ["正常", "偏高", "已知高血压", "偏低"]}]},
+    {"title": "心血管危险因素", "fields": [
+      {"key": "吸烟", "label": "吸烟", "type": "single", "options": ["无", "已戒", "在吸"]},
+      {"key": "血脂", "label": "血脂异常", "type": "single", "options": ["无", "有", "不详"]},
+      {"key": "早发家族史", "label": "早发冠心病/猝死家族史", "type": "single", "options": ["无", "有"]}]}
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "code": "endocrinology",
+  "name": "内分泌科",
+  "order": 2,
+  "_doc": "按内分泌轴/腺体铺开：大量内分泌病无症状（体检发现血糖高/甲状腺结节/骨密度低、影像偶发垂体/肾上腺瘤），症状常跨多系统。",
+  "assoc": ["多饮多尿", "体重明显变化", "怕热多汗", "怕冷乏力",
+            "心悸手抖", "颈部肿大", "骨痛/易骨折", "皮肤紫纹/色素沉着"],
+  "sections": [
+    {"title": "就诊缘由", "fields": [
+      {"key": "发现方式", "label": "问题如何发现", "type": "single",
+       "options": ["因症状就诊", "体检发现血糖/甲功/结节/骨密度异常", "影像偶发垂体/肾上腺瘤", "随访复查"]}]},
+    {"title": "糖代谢", "fields": [
+      {"key": "三多一少", "label": "多饮多尿多食", "type": "single", "options": ["无", "有"]},
+      {"key": "低血糖发作", "label": "低血糖发作（心慌出汗）", "type": "single", "options": ["无", "有"]},
+      {"key": "已知血糖", "label": "已知血糖 / 糖化", "type": "text", "placeholder": "如空腹8.x，不详可空"}]},
+    {"title": "甲状腺", "fields": [
+      {"key": "颈部肿大", "label": "颈部肿大 / 结节", "type": "single", "options": ["无", "弥漫大", "结节", "压迫感"]},
+      {"key": "怕热怕冷", "label": "怕热 / 怕冷", "type": "single", "options": ["无", "怕热多汗", "怕冷"]},
+      {"key": "心悸手抖", "label": "心悸 / 手抖", "type": "single", "options": ["无", "有"]},
+      {"key": "突眼", "label": "突眼", "type": "single", "options": ["无", "有"]}]},
+    {"title": "体重 · 体型", "fields": [
+      {"key": "体重变化", "label": "体重变化", "type": "single", "options": ["无变化", "增加", "减少"]},
+      {"key": "向心性肥胖", "label": "向心性肥胖 / 紫纹", "type": "single", "options": ["无", "有"]},
+      {"key": "食欲", "label": "食欲", "type": "single", "options": ["正常", "亢进", "下降"]}]},
+    {"title": "骨钙 · 性腺 · 生长", "fields": [
+      {"key": "骨钙", "label": "骨痛 / 变矮 / 骨折", "type": "single", "options": ["无", "有"]},
+      {"key": "性腺", "label": "月经 / 性功能异常", "type": "single", "options": ["无", "有", "不适用"]},
+      {"key": "泌乳毛发", "label": "泌乳 / 毛发变化", "type": "single", "options": ["无", "有"]}]},
+    {"title": "全身 · 垂体-肾上腺", "fields": [
+      {"key": "乏力色素", "label": "乏力 / 皮肤色素沉着", "type": "single", "options": ["无", "有"]},
+      {"key": "头痛视野", "label": "头痛 / 视野缺损", "type": "single", "options": ["无", "有"]},
+      {"key": "血压", "label": "血压", "type": "single", "options": ["正常", "偏高", "阵发性升高", "偏低"]}]}
+  ]
+}

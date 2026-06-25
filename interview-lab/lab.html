@@ -1,68 +1,112 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>问诊实验台 · interview-lab</title>
+<title>问诊实验台 · 注册式表单</title>
 <style>
-  :root{--bg:#0e1413;--card:#1a2422;--line:#2a3631;--ink:#d7e3df;--teal:#34a99d;--teal7:#5fb6ab;--muted:#8ba29c;--warn:#e0916f;}
+  :root{--bg:#0e1413;--card:#1a2422;--line:#2a3631;--ink:#d7e3df;--teal:#34a99d;--teal7:#5fb6ab;--muted:#8ba29c;--warn:#e0916f;--gold:#d8b46a;}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;height:100vh;display:flex;flex-direction:column;font-size:13px}
   header{padding:8px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   header b{color:var(--teal7);font-size:14px;white-space:nowrap}
   .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:2px 7px;white-space:nowrap}
-  select,button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:12px;cursor:pointer}
+  .grow{flex:1}
+  select,button,input{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:12px}
+  select,button{cursor:pointer}
   select{max-width:340px}
-  select:focus{outline:none;border-color:var(--teal)}
+  select:focus,input:focus{outline:none;border-color:var(--teal)}
   button.primary{background:var(--teal);color:#06110f;border:none;font-weight:600}
+  button.ghost{background:transparent}
   button:disabled{opacity:.5;cursor:default}
-  .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
-  .seg button{border:none;border-radius:0;padding:5px 11px}
-  .seg button.on{background:rgba(52,169,157,.16);color:var(--teal7);font-weight:600}
-  /* 状态条：高密度 */
   .stats{display:flex;gap:14px;padding:5px 16px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted);flex-wrap:wrap;background:#0c1110}
   .stats b{color:var(--teal7);font-weight:600}
-  #chat{flex:1;overflow-y:auto;padding:18px;max-width:880px;margin:0 auto;width:100%}
-  .msg{margin:9px 0;display:flex}.msg.user{justify-content:flex-end}
-  .bubble{max-width:80%;padding:9px 13px;border-radius:13px;font-size:13.5px;line-height:1.6;white-space:pre-wrap}
-  .user .bubble{background:var(--teal);color:#06110f}
-  .ai .bubble{background:var(--card);border:1px solid var(--line)}
-  .think{color:var(--muted);font-style:italic}
-  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 6px 4px;align-items:center}
-  .chip{background:rgba(52,169,157,.10);border:1px solid var(--teal);color:var(--teal7);border-radius:16px;padding:5px 13px;font-size:13px;cursor:pointer}
+  /* 两栏：左表单 右症状包JSON */
+  main{flex:1;display:flex;overflow:hidden}
+  #form{flex:1;overflow-y:auto;padding:18px 22px;max-width:760px}
+  #pkgpane{width:380px;border-left:1px solid var(--line);background:#0b100f;display:flex;flex-direction:column}
+  .pkg-head{padding:8px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+  .pkg-head b{color:var(--gold)}
+  .pkg-head .grow{flex:1}
+  #pkg{flex:1;overflow:auto;margin:0;padding:12px 14px;font:12px/1.55 "JetBrains Mono",Consolas,monospace;color:#cfe6df;white-space:pre;tab-size:2}
+  .k{color:var(--teal7)} .s{color:var(--gold)} .n{color:#d98f6a}
+  /* 医生追问横幅 */
+  .notes{background:rgba(216,180,106,.10);border:1px solid var(--gold);border-radius:9px;padding:9px 13px;margin:0 0 16px;font-size:12.5px;line-height:1.7}
+  .notes b{color:var(--gold)}
+  /* 表单分节 */
+  .sec{margin:0 0 20px}
+  .sec-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  .sec-h .t{color:var(--teal7);font-size:13.5px;font-weight:600}
+  .sec-h .i{color:var(--muted);font-size:11px}
+  .field{margin:0 0 13px;display:flex;gap:12px;align-items:flex-start}
+  .field>label{width:118px;flex:none;color:var(--muted);font-size:12.5px;padding-top:6px;text-align:right}
+  .field>label .req{color:var(--warn)}
+  .ctl{flex:1;min-width:0}
+  .ctl input{width:100%;font-size:13px;padding:7px 11px}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+  .chip{background:rgba(52,169,157,.10);border:1px solid var(--teal);color:var(--teal7);border-radius:16px;padding:4px 12px;font-size:12.5px;cursor:pointer;user-select:none}
   .chip:hover{background:rgba(52,169,157,.22)}
   .chip.sel{background:var(--teal);color:#06110f;font-weight:600}
-  .chip-ok{border-radius:16px;padding:5px 15px;font-size:13px;background:var(--teal);color:#06110f;border:none;font-weight:600}
-  .chip-ok:disabled{background:var(--card);color:var(--muted);border:1px solid var(--line)}
-  footer{border-top:1px solid var(--line);padding:10px 16px;max-width:880px;margin:0 auto;width:100%;display:flex;gap:9px}
-  textarea{flex:1;background:#0a1019;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:13.5px;resize:none;height:42px;font-family:inherit}
-  textarea:focus{outline:none;border-color:var(--teal)}
-  ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+  .chip.new{border-style:dashed;color:var(--gold);border-color:var(--gold)}
+  .chip.new.sel{background:var(--gold);color:#06110f}
+  .addbox{border:1px dashed var(--line);background:transparent;border-radius:16px;padding:3px 10px;font-size:12.5px;width:88px;color:var(--ink)}
+  .field.aug>label{color:var(--gold)}
+  /* 选项卡片（标签+白话解释，借鉴 AskUserQuestion）：仅当选项带 desc 时启用 */
+  .cards{display:flex;flex-direction:column;gap:6px}
+  .optcard{display:flex;align-items:flex-start;gap:9px;text-align:left;width:100%;cursor:pointer;
+           background:rgba(52,169,157,.05);border:1px solid var(--line);border-radius:9px;padding:8px 11px}
+  .optcard:hover{border-color:var(--teal7)}
+  .optcard.sel{border-color:var(--teal);background:rgba(52,169,157,.15)}
+  .optcard .dot{flex:none;width:13px;height:13px;border-radius:50%;border:1.5px solid var(--muted);margin-top:2px}
+  .optcard.sel .dot{border-color:var(--teal);background:radial-gradient(circle,var(--teal) 0 3.5px,transparent 4.5px)}
+  .optcard .oc{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .optcard .ol{color:var(--ink);font-size:13px;font-weight:600}
+  .optcard.sel .ol{color:var(--teal7)}
+  .optcard .od{color:var(--muted);font-size:11.5px;line-height:1.45}
+  .cardadd{margin-top:2px;align-self:flex-start;width:130px}
+  /* 佐证材料上传 */
+  .drop{display:block;border:1px dashed var(--line);border-radius:9px;padding:14px;text-align:center;color:var(--muted);cursor:pointer;font-size:12.5px;margin-bottom:10px}
+  .drop:hover,.drop.over{border-color:var(--teal);color:var(--teal7);background:rgba(52,169,157,.06)}
+  .file{padding:8px 4px;border-bottom:1px solid var(--line)}
+  .frow{display:flex;align-items:center;gap:10px}
+  .fmeta{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fmeta a{color:var(--teal7);text-decoration:none}.fmeta a:hover{text-decoration:underline}
+  .fstat{flex:none;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:1px 7px}
+  .fstat.ok{color:var(--teal7);border-color:var(--teal)} .fstat.err{color:var(--warn);border-color:var(--warn)}
+  .fnote{width:100%;margin-top:6px;font-size:12.5px;padding:5px 9px}
+  .focr{width:100%;margin-top:6px;height:64px;background:#0a1019;color:#bcd4cd;border:1px solid var(--line);border-radius:7px;padding:6px 9px;font:12px/1.5 "JetBrains Mono",Consolas,monospace;resize:vertical}
+  .focr:focus{outline:none;border-color:var(--teal)}
+  .fdel{flex:none;border:none;background:transparent;color:var(--warn);padding:2px 7px;font-size:13px}
+  ::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 </style></head>
 <body>
 <header>
-  <b>问诊实验台</b><span class="tag">隔离沙盒 · :8010</span>
+  <b>问诊实验台</b><span class="tag">注册式表单 · 隔离沙盒 :8010</span>
   <select id="model" title="模型 · 体积 · 约束A合规"></select>
-  <select id="dept">
-    <option value="cardiology">心血管内科</option><option value="endocrinology">内分泌科</option>
-    <option value="urology" selected>泌尿外科</option><option value="neurology">神经内科</option>
-  </select>
-  <span class="seg" id="mode">
-    <button data-m="chat" class="on">纯 chat</button><button data-m="cards">chat+选项卡</button>
-  </span>
-  <button id="reset">＋ 新问诊</button>
+  <select id="dept" title="科室（来自外挂数据集 datasets/*.json）"></select>
+  <span class="grow"></span>
+  <button class="ghost" id="augment" title="让医生看一眼已填内容并动态追问">🩺 医生追问</button>
+  <button class="primary" id="package">生成症状包 ▸</button>
+  <button class="ghost" id="reset">＋ 新问诊</button>
 </header>
 <div class="stats" id="stats">
   <span>模型 <b id="s-model">—</b></span><span>体积 <b id="s-size">—</b></span><span>合规 <b id="s-ok">—</b></span>
-  <span>模式 <b id="s-mode">纯chat</b></span><span>轮次 <b id="s-turns">0</b></span>
-  <span>上轮 <b id="s-last">—</b></span><span>速度 <b id="s-tps">—</b></span><span>累计 <b id="s-cum">0.0s</b></span>
+  <span>已填字段 <b id="s-filled">0</b></span><span>追问 <b id="s-aug">0</b></span>
+  <span>上次AI <b id="s-last">—</b></span><span>速度 <b id="s-tps">—</b></span>
 </div>
-<div id="chat"></div>
-<footer>
-  <textarea id="input" placeholder="以患者身份回答…（Enter 发送，Shift+Enter 换行）"></textarea>
-  <button class="primary" id="send">发送</button>
-</footer>
+<main>
+  <div id="form"></div>
+  <aside id="pkgpane">
+    <div class="pkg-head"><b>症状包 (JSON)</b><span class="grow"></span>
+      <button class="ghost" id="copy" style="padding:3px 8px">复制</button>
+      <button class="ghost" id="dl" style="padding:3px 8px">下载</button></div>
+    <pre id="pkg">{}</pre>
+  </aside>
+</main>
 <script>
 const $=s=>document.querySelector(s);
-let messages=[], busy=false, mode="chat", turns=0, cum=0, modelMeta={}, selChips=new Set();
+const optLabel=o=>(o&&typeof o==='object')?o.label:o;   // 选项可为字符串或 {label,desc}
+const optDesc =o=>(o&&typeof o==='object')?(o.desc||""):"";
+let schema=null, values={}, modelMeta={}, augCount=0, notes=[], attachments=[];
 
+/* ---------- 模型 ---------- */
 async function loadModels(){
   try{
     const d=await (await fetch("/models")).json();
@@ -75,7 +119,7 @@ async function loadModels(){
     });
     const pref=[...sel.options].find(o=>/gemma4:e4b/i.test(o.value))
             ||[...sel.options].find(o=>modelMeta[o.value]&&modelMeta[o.value].ok);
-    if(pref){sel.value=pref.value;}
+    if(pref) sel.value=pref.value;
     syncModelStats();
   }catch(e){ $("#s-model").textContent="加载失败"; }
 }
@@ -87,70 +131,278 @@ function syncModelStats(){
   $("#s-ok").style.color=m.ok===false?"var(--warn)":"var(--teal7)";
 }
 
-// 从 AI 回复里抽【选项】a | b | c
-function parseChips(text){
-  const mt=text.match(/【选项】\s*(.+)/);
-  if(!mt) return {body:text, chips:[]};
-  const chips=mt[1].split(/[|｜]/).map(s=>s.trim()).filter(Boolean);
-  return {body:text.replace(/\n?【选项】.*/,"").trim(), chips};
-}
-
-function render(){
-  const c=$("#chat"); c.innerHTML="";
-  messages.forEach((m,i)=>{
-    const isLast = i===messages.length-1;
-    const w=document.createElement("div"); w.className="msg "+(m.role==="user"?"user":"ai");
-    const b=document.createElement("div"); b.className="bubble";
-    if(m.role==="assistant" && mode==="cards"){
-      const {body,chips}=parseChips(m.content); b.textContent=body; w.appendChild(b); c.appendChild(w);
-      if(isLast && chips.length){
-        const cd=document.createElement("div"); cd.className="chips";
-        chips.forEach(ch=>{
-          const x=document.createElement("button");
-          x.className="chip"+(selChips.has(ch)?" sel":""); x.textContent=ch;
-          x.onclick=()=>{ selChips.has(ch)?selChips.delete(ch):selChips.add(ch); render(); };
-          cd.appendChild(x);
-        });
-        const ok=document.createElement("button"); ok.className="chip-ok";
-        ok.textContent=`确定 (${selChips.size})`; ok.disabled=selChips.size===0;
-        ok.onclick=()=>{ const v=[...selChips].join("、"); turn(v); };
-        cd.appendChild(ok);
-        c.appendChild(cd);
-      }
-    }else{ b.textContent=m.content; w.appendChild(b); c.appendChild(w); }
-  });
-  if(busy){const w=document.createElement("div");w.className="msg ai";w.innerHTML='<div class="bubble think">主治医师正在思考…</div>';c.appendChild(w);}
-  c.scrollTop=c.scrollHeight;
-}
-
-async function turn(userText){
-  if(busy) return;
-  if(userText) messages.push({role:"user",content:userText});
-  selChips=new Set();                       // 提交后清空已选，下一问重新开始
-  busy=true; render(); $("#send").disabled=true;
+/* ---------- 科室（外挂数据集驱动）---------- */
+async function loadDepts(){
   try{
-    const d=await (await fetch("/chat",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({messages,model:$("#model").value,department:$("#dept").value,mode})})).json();
-    if(d.reply){messages.push({role:"assistant",content:d.reply}); turns++;}
-    else messages.push({role:"assistant",content:"[错误] "+(d.error||"无回复")});
-    const s=d.stats||{}; cum+=(s.total_s||0);
-    $("#s-turns").textContent=turns;
-    $("#s-last").textContent=(s.total_s||0)+"s";
-    $("#s-tps").textContent=(s.tps||0)+" tok/s";
-    $("#s-cum").textContent=cum.toFixed(1)+"s";
-  }catch(e){messages.push({role:"assistant",content:"[请求失败] "+e.message});}
-  busy=false; render(); $("#send").disabled=false; $("#input").focus();
+    const d=await (await fetch("/depts")).json();
+    const sel=$("#dept"); sel.innerHTML="";
+    (d.depts||[]).forEach(x=>{ const o=document.createElement("option"); o.value=x.code; o.textContent=x.name; sel.appendChild(o); });
+    const u=[...sel.options].find(o=>o.value==="urology"); if(u) sel.value=u.value;
+  }catch(e){ $("#form").textContent="科室数据集加载失败："+e.message; }
 }
 
-$("#send").onclick=()=>{const v=$("#input").value.trim();if(v){$("#input").value="";turn(v);}};
-$("#input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("#send").click();}});
+/* ---------- 表单 ---------- */
+async function loadSchema(){
+  const dept=$("#dept").value;
+  schema=await (await fetch("/schema?dept="+dept)).json();
+  values={}; augCount=0; notes=[]; attachments=[]; $("#s-aug").textContent=0;
+  renderForm(); renderPkg();
+}
+
+function fieldEl(sec,f){
+  const wrap=document.createElement("div"); wrap.className="field"+(f._aug?" aug":"");
+  const lab=document.createElement("label");
+  lab.innerHTML=(f.key==="主诉"?'<span class="req">*</span> ':"")+(f._aug?"🩺 ":"")+(f.label||f.key);
+  wrap.appendChild(lab);
+  const ctl=document.createElement("div"); ctl.className="ctl";
+  if(f.type==="text"||!f.options){
+    const i=document.createElement("input");
+    i.placeholder=f.placeholder||""; i.value=values[f.key]||"";
+    i.oninput=()=>{ values[f.key]=i.value.trim(); renderPkg(); updFilled(); };
+    ctl.appendChild(i);
+  }else if((f.options||[]).some(o=>o&&typeof o==='object'&&o.desc)){
+    // 卡片式：标签 + 白话解释（借鉴 AskUserQuestion 表达），数据里带 desc 才启用
+    const list=document.createElement("div"); list.className="cards";
+    const multi=f.type==="multi";
+    if(multi && !Array.isArray(values[f.key])) values[f.key]=values[f.key]?[values[f.key]]:[];
+    (f.options||[]).forEach(o=>{
+      const label=optLabel(o), desc=optDesc(o);
+      const on=()=> multi ? (values[f.key]||[]).includes(label) : values[f.key]===label;
+      const card=document.createElement("button"); card.type="button";
+      card.className="optcard"+(on()?" sel":"");
+      card.innerHTML='<span class="dot"></span><span class="oc"><span class="ol"></span><span class="od"></span></span>';
+      card.querySelector(".ol").textContent=label;
+      if(desc) card.querySelector(".od").textContent=desc; else card.querySelector(".od").remove();
+      card.onclick=()=>{
+        if(multi){ const a=values[f.key]||(values[f.key]=[]); const j=a.indexOf(label); j<0?a.push(label):a.splice(j,1); }
+        else { values[f.key]=on()?"":label; }
+        renderForm(); renderPkg(); updFilled();
+      };
+      list.appendChild(card);
+    });
+    const add=document.createElement("input"); add.className="addbox cardadd"; add.placeholder="＋其他";
+    add.onkeydown=e=>{ if(e.key==="Enter"){ const v=add.value.trim(); if(!v)return;
+      f.options=f.options||[]; if(!f.options.some(o=>optLabel(o)===v)) f.options.push(v);
+      if(multi){ (values[f.key]||(values[f.key]=[])).push(v); } else values[f.key]=v;
+      add.value=""; renderForm(); renderPkg(); updFilled(); } };
+    list.appendChild(add);
+    ctl.appendChild(list);
+  }else{
+    const box=document.createElement("div"); box.className="chips";
+    const multi=f.type==="multi";
+    if(multi && !Array.isArray(values[f.key])) values[f.key]=values[f.key]?[values[f.key]]:[];
+    (f.options||[]).forEach(opt=>{
+      const c=document.createElement("button"); c.className="chip"+(f._newopts&&f._newopts.includes(opt)?" new":"");
+      c.textContent=opt;
+      const on=()=> multi ? (values[f.key]||[]).includes(opt) : values[f.key]===opt;
+      if(on()) c.classList.add("sel");
+      c.onclick=()=>{
+        if(multi){ const a=values[f.key]||(values[f.key]=[]); const j=a.indexOf(opt);
+          j<0?a.push(opt):a.splice(j,1); }
+        else { values[f.key]=on()?"":opt; }
+        renderForm(); renderPkg(); updFilled();
+      };
+      box.appendChild(c);
+    });
+    // 自定义补充（自由作答，自动选中）
+    const add=document.createElement("input"); add.className="addbox"; add.placeholder="＋其他";
+    add.onkeydown=e=>{ if(e.key==="Enter"){ const v=add.value.trim(); if(!v)return;
+      f.options=f.options||[]; if(!f.options.includes(v)) f.options.push(v);
+      if(multi){ (values[f.key]||(values[f.key]=[])).push(v); } else values[f.key]=v;
+      add.value=""; renderForm(); renderPkg(); updFilled(); } };
+    box.appendChild(add);
+    ctl.appendChild(box);
+  }
+  wrap.appendChild(ctl); return wrap;
+}
+
+function renderForm(){
+  const root=$("#form"); root.innerHTML="";
+  if(notes.length){
+    const n=document.createElement("div"); n.className="notes";
+    n.innerHTML="<b>🩺 医生追问 / 提醒</b><br>"+notes.map(x=>"· "+x).join("<br>");
+    root.appendChild(n);
+  }
+  (schema.sections||[]).forEach(sec=>{
+    const s=document.createElement("div"); s.className="sec";
+    const h=document.createElement("div"); h.className="sec-h";
+    h.innerHTML=`<span class="t">${sec.title}</span><span class="i">${sec.fields.length} 项</span>`;
+    s.appendChild(h);
+    sec.fields.forEach(f=> s.appendChild(fieldEl(sec,f)));
+    root.appendChild(s);
+  });
+  root.appendChild(attachSection());
+}
+
+/* ---------- 佐证材料上传（检查报告等）---------- */
+function fmtSize(b){ return b<1024?b+"B":b<1048576?(b/1024).toFixed(0)+"KB":(b/1048576).toFixed(1)+"MB"; }
+function attachSection(){
+  const s=document.createElement("div"); s.className="sec";
+  const h=document.createElement("div"); h.className="sec-h";
+  h.innerHTML=`<span class="t">佐证材料</span><span class="i">检查报告 / 化验单 / 影像，${attachments.length} 份</span>`;
+  s.appendChild(h);
+  const zone=document.createElement("label"); zone.className="drop";
+  zone.innerHTML='📎 点击或拖拽上传文件 <span class="i">（PDF / 图片 / 文档，可多选，单份≤25MB）</span>';
+  const inp=document.createElement("input"); inp.type="file"; inp.multiple=true; inp.hidden=true;
+  inp.onchange=()=>{ addFiles(inp.files); inp.value=""; };
+  zone.appendChild(inp);
+  zone.ondragover=e=>{e.preventDefault();zone.classList.add("over");};
+  zone.ondragleave=()=>zone.classList.remove("over");
+  zone.ondrop=e=>{e.preventDefault();zone.classList.remove("over");addFiles(e.dataTransfer.files);};
+  s.appendChild(zone);
+  const STAT={uploading:["解析中…",""],ok:["✓ 已识别","ok"],text:["文本",""],
+              "pdf-text":["✓ PDF文本层","ok"],"pdf-ocr":["✓ 扫描OCR","ok"],
+              empty:["未提取到文字","err"],skipped:["未支持·未OCR",""],error:["解析失败","err"]};
+  attachments.forEach((a,i)=>{
+    const row=document.createElement("div"); row.className="file";
+    const top=document.createElement("div"); top.className="frow";
+    const meta=document.createElement("div"); meta.className="fmeta";
+    meta.innerHTML=a.id?`<a href="/uploads/${a.id}" target="_blank">${a.name}</a> <span class="i">${fmtSize(a.size)}</span>`
+                       :`${a.name} <span class="i">${fmtSize(a.size)}</span>`;
+    const st=STAT[a.status]||["",""]; const badge=document.createElement("span");
+    badge.className="fstat"+(st[1]?" "+st[1]:""); badge.textContent=st[0];
+    const del=document.createElement("button"); del.className="fdel"; del.textContent="✕";
+    del.onclick=()=>{ attachments.splice(i,1); renderForm(); renderPkg(); };
+    top.appendChild(meta); top.appendChild(badge); top.appendChild(del); row.appendChild(top);
+    const note=document.createElement("input"); note.className="fnote"; note.placeholder="备注（如：2026-06 泌尿系超声）";
+    note.value=a.note||""; note.oninput=()=>{ a.note=note.value.trim(); renderPkg(); };
+    row.appendChild(note);
+    if(a.status==="skipped"){
+      const h=document.createElement("div"); h.className="i"; h.style.marginTop="5px";
+      h.textContent="（沙盒仅对图片做 OCR，PDF/文档请在备注填关键值）"; row.appendChild(h);
+    }else if(a.status!=="uploading"){
+      const ta=document.createElement("textarea"); ta.className="focr";
+      ta.placeholder="OCR 识别文本（可手动校正/补录关键值）"; ta.value=a.ocr||"";
+      ta.oninput=()=>{ a.ocr=ta.value; renderPkg(); }; row.appendChild(ta);
+    }
+    s.appendChild(row);
+  });
+  return s;
+}
+async function addFiles(fileList){
+  for(const file of [...fileList]){
+    const a={id:null,name:file.name,size:file.size,mime:file.type,note:"",ocr:"",status:"uploading"};
+    attachments.push(a); renderForm(); renderPkg();   // 先占位显示「识别中…」
+    try{
+      const data=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(file);});
+      const b64=(data.split(",")[1])||"";
+      const r=await (await fetch("/upload",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name:file.name,mime:file.type,data:b64})})).json();
+      if(r.error){ a.status="error"; a.ocr="[上传失败] "+r.error; }
+      else { a.id=r.id; a.size=r.size; a.ocr=r.ocr||""; a.status=r.ocr_status||"ok"; }
+    }catch(e){ a.status="error"; a.ocr="[上传失败] "+e.message; }
+    renderForm(); renderPkg();
+  }
+}
+
+/* ---------- 症状包 JSON ---------- */
+function buildPkg(){
+  const pkg={"科室":schema.department};
+  (schema.sections||[]).forEach(sec=>{
+    if(sec.key==="chief"){ if(values["主诉"]) pkg["主诉"]=values["主诉"]; return; }
+    const name=sec.title.replace(/（.*?）/,"");
+    if(sec.fields.length===1){
+      const v=values[sec.fields[0].key];
+      if(v && (!Array.isArray(v)||v.length)) pkg[name]=v;
+      return;
+    }
+    const obj={};
+    sec.fields.forEach(f=>{ const v=values[f.key];
+      if(v && (!Array.isArray(v)||v.length)) obj[f.label||f.key]=v; });
+    if(Object.keys(obj).length) pkg[name]=obj;
+  });
+  if(attachments.length) pkg["佐证材料"]=attachments.map(a=>{
+    const o={"文件名":a.name,"大小":fmtSize(a.size)};
+    if(a.id) o["链接"]="/uploads/"+a.id;
+    if(a.note) o["备注"]=a.note;
+    const t=(a.ocr||"").trim();
+    if(t && a.status!=="error" && a.status!=="uploading") o["识别文本"]=t;
+    return o;
+  });
+  return pkg;
+}
+function hl(json){ // 极简语法高亮
+  return json.replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/"([^"]+)":/g,'<span class="k">"$1"</span>:')
+    .replace(/: "([^"]*)"/g,': <span class="s">"$1"</span>')
+    .replace(/: (\d+(?:\.\d+)?)/g,': <span class="n">$1</span>');
+}
+let lastPkgText="{}";
+function renderPkg(pkgOverride){
+  const pkg=pkgOverride||buildPkg();
+  lastPkgText=JSON.stringify(pkg,null,2);
+  $("#pkg").innerHTML=hl(lastPkgText);
+}
+function updFilled(){
+  let n=0; (schema.sections||[]).forEach(s=>s.fields.forEach(f=>{
+    const v=values[f.key]; if(v && (!Array.isArray(v)||v.length)) n++; }));
+  $("#s-filled").textContent=n;
+}
+
+/* ---------- AI：动态追问 ---------- */
+function aiStats(s){ if(!s)return; $("#s-last").textContent=(s.total_s||0)+"s"; $("#s-tps").textContent=(s.tps||0)+" tok/s"; }
+function setBusy(b){ $("#augment").disabled=b; $("#package").disabled=b; }
+
+$("#augment").onclick=async()=>{
+  if(!values["主诉"]){ alert("请先填写主诉，医生才好追问。"); return; }
+  setBusy(true); $("#augment").textContent="🩺 思考中…";
+  try{
+    const d=await (await fetch("/augment",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:$("#model").value,department:$("#dept").value,chief:values["主诉"],filled:buildPkg()})})).json();
+    aiStats(d.stats);
+    if(d.error){ alert("追问失败："+d.error); }
+    else mergeAugment(d.augment||{});
+  }catch(e){ alert("追问请求失败："+e.message); }
+  finally{ setBusy(false); $("#augment").textContent="🩺 医生追问"; }
+};
+
+function findSec(key){ return (schema.sections||[]).find(s=>s.key===key) || (schema.sections||[]).find(s=>s.key==="hpi"); }
+function mergeAugment(a){
+  // 1) 给已有字段追加候选选项
+  const ao=a.add_options||{};
+  Object.keys(ao).forEach(k=>{
+    (schema.sections||[]).forEach(s=>s.fields.forEach(f=>{
+      if(f.key===k && Array.isArray(f.options)){
+        f._newopts=f._newopts||[];
+        (ao[k]||[]).forEach(o=>{ if(!f.options.includes(o)){ f.options.push(o); f._newopts.push(o);} });
+      }
+    }));
+  });
+  // 2) 新增追问字段
+  (a.new_fields||[]).forEach(nf=>{
+    if(!nf.key) return;
+    const sec=findSec(nf.section);
+    if(sec.fields.some(f=>f.key===nf.key)) return;
+    sec.fields.push({key:nf.key,label:nf.label||nf.key,type:nf.type||"text",options:nf.options||null,_aug:true});
+    augCount++;
+  });
+  // 3) 提醒
+  notes=(a.notes||[]).slice(0,3);
+  $("#s-aug").textContent=augCount;
+  renderForm(); renderPkg();
+}
+
+/* ---------- AI：生成最终症状包 ---------- */
+$("#package").onclick=async()=>{
+  if(!values["主诉"]){ alert("请先填写主诉。"); return; }
+  setBusy(true); $("#package").textContent="生成中…";
+  try{
+    const d=await (await fetch("/package",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:$("#model").value,department:$("#dept").value,chief:values["主诉"],filled:buildPkg()})})).json();
+    aiStats(d.stats);
+    if(d.error){ alert("生成失败："+d.error); }
+    else renderPkg(d.package);   // 用 AI 规整后的症状包覆盖右栏
+  }catch(e){ alert("生成请求失败："+e.message); }
+  finally{ setBusy(false); $("#package").textContent="生成症状包 ▸"; }
+};
+
+/* ---------- 工具 ---------- */
+$("#copy").onclick=()=>navigator.clipboard.writeText(lastPkgText).then(()=>{$("#copy").textContent="已复制";setTimeout(()=>$("#copy").textContent="复制",1200);});
+$("#dl").onclick=()=>{const b=new Blob([lastPkgText],{type:"application/json"});const u=URL.createObjectURL(b);
+  const a=document.createElement("a");a.href=u;a.download="symptom-package.json";a.click();URL.revokeObjectURL(u);};
+$("#dept").onchange=loadSchema;
 $("#model").onchange=syncModelStats;
-$("#mode").querySelectorAll("button").forEach(btn=>btn.onclick=()=>{
-  mode=btn.dataset.m; $("#mode").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b===btn));
-  $("#s-mode").textContent=mode==="cards"?"chat+选项卡":"纯chat"; reset();
-});
-function reset(){messages=[];turns=0;cum=0;$("#s-turns").textContent=0;$("#s-cum").textContent="0.0s";$("#s-last").textContent="—";$("#s-tps").textContent="—";render();turn(null);}
-$("#reset").onclick=reset;
-loadModels().then(()=>turn(null));
+$("#reset").onclick=loadSchema;
+loadModels(); loadDepts().then(loadSchema);
 </script>
 </body></html>

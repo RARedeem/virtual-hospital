@@ -22,3 +22,8 @@ gemini.sh
 
 # 版权指南 PDF：仅本地保留，不入库/不推送
 guidelines/
+
+# 问诊实验台佐证材料（含PHI，勿入库）
+interview-lab/uploads/
+# 症状包导出（病人数据，勿入库）
+/symptom-package.json
