@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>家族健康档案</title>
+<title>AI健康管理</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.2/babel.min.js"></script>
@@ -721,6 +721,198 @@ function OptionCards({ q, busy, onSubmit, onMore }) {
   );
 }
 
+// ── 注册式采集表单（方案A 原生移植）：数据集驱动整表 + 卡片解释 + 佐证上传 ──
+// 友好衔接：提交产症状包记录 → 回档案视图 → 患者点既有「运行双盲评估」。评估流一律不动。
+function optLabel(o) { return (o && typeof o === "object") ? o.label : o; }
+function optDesc(o) { return (o && typeof o === "object") ? (o.desc || "") : ""; }
+
+function IntakeForm({ member, deptKey, onArchived, onCancel }) {
+  const [schema, setSchema] = useState(null);
+  const [values, setValues] = useState({});
+  const [attach, setAttach] = useState([]);     // {name, record_type, ocr, ocr_error}
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [rtype, setRtype] = useState("lab_report");
+  const fileRef = React.useRef(null);
+
+  useEffect(() => {
+    let stop = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/interview/schema?dept=${encodeURIComponent(deptKey)}`);
+        if (!r.ok) throw new Error(`schema ${r.status}`);
+        const d = await r.json();
+        if (!stop) { setSchema(d); setValues({}); setAttach([]); }
+      } catch (e) { if (!stop) setErr(`表单加载失败：${e.message}`); }
+    })();
+    return () => { stop = true; };
+  }, [deptKey]);
+
+  function setVal(k, v) { setValues(p => ({ ...p, [k]: v })); }
+  function toggleMulti(k, opt) {
+    setValues(p => { const a = Array.isArray(p[k]) ? p[k] : []; return { ...p, [k]: a.includes(opt) ? a.filter(x => x !== opt) : [...a, opt] }; });
+  }
+
+  async function onUpload(fileList) {
+    const files = fileList ? Array.from(fileList) : [];
+    if (!files.length) return;
+    setBusy(true); setErr(null);
+    try {
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append("file", f); fd.append("member_id", member.id); fd.append("record_type", rtype);
+        const h = await authHeaders();   // 不手动设 Content-Type，交浏览器补 multipart 边界
+        const resp = await fetch(`${API_BASE}/upload`, { method: "POST", headers: h, body: fd });
+        if (!resp.ok) { const d = await resp.json().catch(() => ({})); throw new Error(d.detail || `上传失败 ${resp.status}`); }
+        const d = await resp.json();
+        setAttach(p => [...p, { name: f.name, record_type: d.record_type || rtype, ocr: d.extracted_zh || "", ocr_error: d.ocr_error || "" }]);
+      }
+    } catch (e) { setErr(`「${files[0] && files[0].name}」${e.message}`); }
+    finally { setBusy(false); }
+  }
+
+  function buildPkg() {
+    const pkg = { "科室": schema.department };
+    (schema.sections || []).forEach(sec => {
+      if (sec.key === "chief") { if (values["主诉"]) pkg["主诉"] = values["主诉"]; return; }
+      const name = sec.title.replace(/（.*?）/, "");
+      if (sec.fields.length === 1) {
+        const v = values[sec.fields[0].key];
+        if (v && (!Array.isArray(v) || v.length)) pkg[name] = v;
+        return;
+      }
+      const obj = {};
+      sec.fields.forEach(f => { const v = values[f.key]; if (v && (!Array.isArray(v) || v.length)) obj[f.label || f.key] = v; });
+      if (Object.keys(obj).length) pkg[name] = obj;
+    });
+    if (attach.length) pkg["佐证材料"] = attach.map(a => { const o = { "文件名": a.name }; if (a.ocr) o["识别文本"] = a.ocr; return o; });
+    return pkg;
+  }
+
+  async function submit() {
+    if (!values["主诉"] || !values["主诉"].trim()) { setErr("请先填写主诉。"); return; }
+    setBusy(true); setErr(null);
+    try {
+      const h = await authHeaders();
+      const resp = await fetch(`${API_BASE}/symptom-packages/intake`, {
+        method: "POST", headers: { "Content-Type": "application/json", ...h },
+        body: JSON.stringify({ member_id: member.id, package: buildPkg() }),
+      });
+      if (resp.status === 401) { await _UM.signinRedirect(); throw new Error("会话已过期，正在重新登录"); }
+      if (!resp.ok) { const d = await resp.json().catch(() => ({})); throw new Error(d.detail || `归档失败 ${resp.status}`); }
+      const d = await resp.json();
+      onArchived && onArchived(d.archived_record_id);
+    } catch (e) { setErr(e.message); setBusy(false); }
+  }
+
+  if (err && !schema) return (
+    <main className="flex-1 p-8 max-w-3xl">
+      <p className="text-sm" style={{ color: "var(--ochre)" }}>{err}</p>
+      <button onClick={onCancel} className="mt-3 text-sm" style={{ color: "var(--teal-700)" }}>← 返回</button>
+    </main>);
+  if (!schema) return (<main className="flex-1 p-8"><p className="text-sm" style={{ color: "var(--muted)" }}>表单加载中…</p></main>);
+
+  const pillStyle = (on) => ({ borderColor: "var(--teal-500)", color: on ? "#fff" : "var(--teal-900)", background: on ? "var(--teal-500)" : "var(--teal-50)" });
+
+  function renderField(f) {
+    const v = values[f.key];
+    const multi = f.type === "multi";
+    if (f.type === "text" || !f.options) {
+      return <input type="text" value={v || ""} placeholder={f.placeholder || ""}
+        onChange={e => setVal(f.key, e.target.value)}
+        className="w-full text-sm rounded-lg px-3 py-2 border" style={{ borderColor: "var(--line)", background: "var(--paper)", color: "var(--ink)" }} />;
+    }
+    const hasDesc = (f.options || []).some(o => o && typeof o === "object" && o.desc);
+    if (hasDesc) {   // 卡片：标签 + 白话解释（借鉴 AskUserQuestion）
+      return <div className="space-y-1.5">
+        {(f.options || []).map((o, i) => {
+          const lab = optLabel(o), desc = optDesc(o);
+          const on = multi ? (Array.isArray(v) && v.includes(lab)) : (v === lab);
+          return <button key={i} type="button" onClick={() => multi ? toggleMulti(f.key, lab) : setVal(f.key, on ? "" : lab)}
+            className="w-full text-left rounded-lg border px-3 py-2 flex items-start gap-2 transition-colors"
+            style={{ borderColor: on ? "var(--teal-500)" : "var(--line)", background: on ? "var(--teal-50)" : "var(--paper)" }}>
+            <span style={{ color: on ? "var(--teal-500)" : "var(--muted)" }}>{on ? "●" : "○"}</span>
+            <span><span className="text-sm font-medium" style={{ color: on ? "var(--teal-900)" : "var(--ink)" }}>{lab}</span>
+              {desc && <span className="block text-xs mt-0.5" style={{ color: "var(--muted)" }}>{desc}</span>}</span>
+          </button>;
+        })}
+      </div>;
+    }
+    return <div className="flex flex-wrap gap-2">
+      {(f.options || []).map((o, i) => {
+        const lab = optLabel(o);
+        const on = multi ? (Array.isArray(v) && v.includes(lab)) : (v === lab);
+        return <button key={i} type="button" onClick={() => multi ? toggleMulti(f.key, lab) : setVal(f.key, on ? "" : lab)}
+          className="px-3 py-1.5 rounded-full text-sm border transition-colors" style={pillStyle(on)}>{on && multi ? "✓ " : ""}{lab}</button>;
+      })}
+    </div>;
+  }
+
+  const deptInfo = DEPARTMENTS.find(d => d.key === deptKey);
+  return (
+    <main className="flex-1 overflow-y-auto" style={{ height: "100vh" }}>
+      <div className="max-w-3xl mx-auto p-8">
+        <div className="flex items-center gap-3 mb-5">
+          <button onClick={onCancel} className="text-sm" style={{ color: "var(--teal-700)" }}>← 返回</button>
+          <h2 className="serif text-xl" style={{ color: "var(--teal-900)" }}>{deptInfo ? `${deptInfo.icon} ${deptInfo.label}` : schema.department} · 表单采集</h2>
+        </div>
+        <p className="text-xs mb-6" style={{ color: "var(--muted)" }}>整表铺开、按需自由填写（带 <span style={{ color: "var(--ochre)" }}>*</span> 为必填）；可上传检查报告作佐证。完成后提交生成症状包，再到档案运行双盲评估。</p>
+        {err && <div className="mb-4 rounded-lg p-3 text-sm" style={{ background: "var(--ochre-bg)", color: "var(--ochre)" }}>{err}</div>}
+
+        {(schema.sections || []).map((sec, si) => (
+          <div key={si} className="mb-6">
+            <h3 className="text-sm font-medium mb-3 pb-1.5 border-b" style={{ color: "var(--teal-700)", borderColor: "var(--line)" }}>{sec.title}</h3>
+            <div className="space-y-4">
+              {sec.fields.map((f, fi) => (
+                <div key={fi} className="grid gap-3 items-start" style={{ gridTemplateColumns: "110px 1fr" }}>
+                  <label className="text-xs text-right pt-2" style={{ color: "var(--muted)" }}>
+                    {f.key === "主诉" && <span style={{ color: "var(--ochre)" }}>* </span>}{f.label || f.key}
+                  </label>
+                  <div>{renderField(f)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {/* 佐证材料：复用既有 /upload（glm-ocr/PDF + 落档），识别文本进症状包 */}
+        <div className="mb-6">
+          <h3 className="text-sm font-medium mb-3 pb-1.5 border-b" style={{ color: "var(--teal-700)", borderColor: "var(--line)" }}>佐证材料 · 检查报告</h3>
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <select value={rtype} onChange={e => setRtype(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 border" style={{ borderColor: "var(--line)", background: "var(--paper)", color: "var(--ink)" }}>
+              {UPLOAD_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+            <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png" multiple className="hidden"
+              onChange={e => { if (e.target.files && e.target.files.length) onUpload(e.target.files); e.target.value = ""; }} />
+            <button type="button" onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}
+              className="text-xs px-3 py-1.5 rounded-lg font-medium border disabled:opacity-50"
+              style={{ borderColor: "var(--teal-500)", color: "var(--teal-900)", background: "var(--teal-50)" }}>
+              {busy ? "处理中…" : "选择文件（PDF/图片，可多选）"}
+            </button>
+          </div>
+          {attach.map((a, i) => (
+            <div key={i} className="text-xs mb-1 p-2 rounded border" style={{ borderColor: "var(--line)", background: "var(--paper)" }}>
+              <span className="font-medium">{a.name}</span>
+              <span style={{ color: "var(--muted)" }}> · {RECORD_TYPE_LABEL[a.record_type] || a.record_type}</span>
+              {a.ocr ? <span style={{ color: "var(--faint)" }}> · 已识别 {a.ocr.length} 字</span>
+                : <span style={{ color: "var(--ochre)" }}> · 未识别{a.ocr_error ? `（${a.ocr_error}）` : ""}</span>}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-3 pt-4 border-t" style={{ borderColor: "var(--line)" }}>
+          <button type="button" onClick={submit} disabled={busy}
+            className="px-5 py-2.5 rounded-lg font-medium disabled:opacity-50" style={{ background: "var(--teal-500)", color: "#fff" }}>
+            {busy ? "提交中…" : "提交并生成症状包 ▸"}
+          </button>
+          <button type="button" onClick={onCancel} disabled={busy}
+            className="px-5 py-2.5 rounded-lg font-medium border" style={{ borderColor: "var(--line)", color: "var(--ink)", background: "transparent" }}>取消</button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 // ── 主面板（F5 挂号视图 / F6 问诊视图 / 默认档案视图） ──
 function MemberDetail({ member, records, onRefreshRecords, editingPackage, savingPackage, onEditPackage, onSavePackage, assessProg }) {
   const [view, setView] = useState("department");   // 默认即进"选择科室"（"profile" | "department" | "interview"）
@@ -888,7 +1080,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
       )}
       <div className="grid grid-cols-2 gap-4">
         {DEPARTMENTS.map(d => (
-          <button key={d.key} onClick={() => chooseDept(d.key)} disabled={busy}
+          <button key={d.key} onClick={() => { setDept(d.key); setError(null); setView("pickmode"); }} disabled={busy}
             className="vh-lift rounded-xl border p-6 text-left disabled:opacity-50"
             style={{ borderColor: "var(--line)", background: "var(--card)" }}>
             <div className="text-3xl mb-3">{d.icon}</div>
@@ -898,6 +1090,37 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
         ))}
       </div>
     </main>
+  );
+
+  // ── 采集方式选择：表单采集（方案A）/ 对话问诊（既有），二者并存不互斥 ──
+  if (view === "pickmode") return (
+    <main className="flex-1 p-8 max-w-3xl">
+      <div className="flex items-center gap-3 mb-8">
+        <button onClick={() => setView("department")} className="text-sm" style={{ color: "var(--teal-700)" }}>← 返回</button>
+        <h2 className="serif text-2xl" style={{ color: "var(--teal-900)" }}>{deptInfo ? `${deptInfo.icon} ${deptInfo.label}` : "采集"} · 选择方式</h2>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <button onClick={() => setView("form")} disabled={busy}
+          className="vh-lift rounded-xl border p-6 text-left disabled:opacity-50" style={{ borderColor: "var(--teal-500)", background: "var(--teal-50)" }}>
+          <div className="text-3xl mb-3">📝</div>
+          <div className="font-medium text-base mb-1" style={{ color: "var(--teal-900)" }}>表单采集</div>
+          <div className="text-xs" style={{ color: "var(--muted)" }}>整表铺开、自由选序填写，按器官系统组织，可上传报告</div>
+        </button>
+        <button onClick={() => chooseDept(dept)} disabled={busy}
+          className="vh-lift rounded-xl border p-6 text-left disabled:opacity-50" style={{ borderColor: "var(--line)", background: "var(--card)" }}>
+          <div className="text-3xl mb-3">💬</div>
+          <div className="font-medium text-base mb-1" style={{ color: "var(--teal-900)" }}>对话问诊</div>
+          <div className="text-xs" style={{ color: "var(--muted)" }}>主治医生逐轮提问、可点选项卡，自然对话式采集</div>
+        </button>
+      </div>
+    </main>
+  );
+
+  // ── 注册式表单采集（方案A）：产症状包后回档案视图，照旧运行双盲评估 ──
+  if (view === "form") return (
+    <IntakeForm member={member} deptKey={dept}
+      onArchived={() => { if (onRefreshRecords) onRefreshRecords(); setView("profile"); }}
+      onCancel={() => setView("department")} />
   );
 
   // ── F6：问诊对话视图（左=对话/选项卡/上传，右=病史侧栏） ──

@@ -1,0 +1,42 @@
+{
+  "code": "neurology",
+  "name": "神经内科",
+  "order": 4,
+  "_doc": "按神经功能系统铺开（含定位思路）：很多神经病灶无症状或偶然影像发现（腔梗/脑膜瘤/动脉瘤），表现分布在意识/运动/感觉/认知等不同系统。",
+  "assoc": ["头痛", "眩晕", "肢体无力", "麻木", "言语不清",
+            "视物模糊/复视", "抽搐发作", "步态不稳"],
+  "sections": [
+    {"title": "就诊缘由", "fields": [
+      {"key": "发现方式", "label": "问题如何发现", "type": "single",
+       "options": ["因症状就诊", "体检发现", "影像偶发（腔梗/占位/动脉瘤）", "随访复查"]}]},
+    {"title": "发作 / 意识", "fields": [
+      {"key": "意识发作", "label": "意识丧失 / 抽搐", "type": "single", "options": ["无", "有"]},
+      {"key": "发作形式", "label": "发作形式", "type": "single",
+       "options": ["不适用", "肢体抽动", "愣神", "先兆后发作"]},
+      {"key": "黑朦", "label": "黑朦 / 晕厥前驱", "type": "single", "options": ["无", "有"]}]},
+    {"title": "头痛 / 头晕 / 颅压", "fields": [
+      {"key": "头痛", "label": "头痛", "type": "single",
+       "options": ["无", "胀痛", "搏动性", "炸裂样(剧烈骤起)"]},
+      {"key": "头晕眩晕", "label": "头晕 / 眩晕", "type": "single",
+       "options": ["无", "昏沉", "天旋地转", "站立不稳"]},
+      {"key": "恶心呕吐", "label": "恶心 / 喷射性呕吐", "type": "single", "options": ["无", "有"]},
+      {"key": "视物", "label": "视物模糊 / 复视", "type": "single", "options": ["无", "有"]}]},
+    {"title": "运动 / 协调", "fields": [
+      {"key": "肢体无力", "label": "肢体无力", "type": "single",
+       "options": ["无", "单侧", "双下肢", "全身"]},
+      {"key": "震颤", "label": "震颤", "type": "single", "options": ["无", "静止性", "动作性"]},
+      {"key": "步态平衡", "label": "步态 / 平衡", "type": "single", "options": ["正常", "不稳", "需搀扶"]},
+      {"key": "不自主运动", "label": "不自主运动", "type": "single", "options": ["无", "有"]}]},
+    {"title": "感觉 / 言语 / 认知", "fields": [
+      {"key": "麻木", "label": "麻木 / 感觉异常", "type": "single",
+       "options": ["无", "手套袜套样", "单肢", "偏身"]},
+      {"key": "言语", "label": "言语不清 / 找词难", "type": "single", "options": ["无", "有"]},
+      {"key": "认知", "label": "记忆 / 认知", "type": "single", "options": ["正常", "下降"]},
+      {"key": "精神情绪", "label": "情绪 / 精神", "type": "single", "options": ["正常", "异常"]}]},
+    {"title": "颅神经 / 自主", "fields": [
+      {"key": "面瘫", "label": "面瘫 / 口角歪斜", "type": "single", "options": ["无", "有"]},
+      {"key": "吞咽", "label": "吞咽 / 饮水呛咳", "type": "single", "options": ["无", "有"]},
+      {"key": "二便", "label": "大小便控制", "type": "single", "options": ["正常", "异常"]},
+      {"key": "睡眠", "label": "睡眠", "type": "single", "options": ["正常", "失眠", "嗜睡", "异态睡眠"]}]}
+  ]
+}

@@ -299,18 +299,12 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -
             try: on_partial(patch)
             except Exception: pass
 
-    # 结构化预处理（两轨共享）：乱麻症状包+佐证 → 结构化转诊摘要，再喂推理
-    _stage("structure")
-    structured_zh = await structure_symptom_package(zh_patient_data)
-    _partial({"structured_zh": structured_zh})
-
+    # 症状包已是 json 结构化（方案A 序列化产出），不再做 structure 预处理——直接消费。
+    # 对已结构化的包再让 llama3.3 重整既慢又可能扭曲，故移除该阶段。
     _stage("translate_en")
-    translated_en = await translate_to_en(structured_zh)   # 结构化译文：供 B 检索/推理（干净输入）
-    # ⚠ 确定性规则用【原始数据】翻译抽取——确定性层须忠实原始数值，
-    #   绝不依赖 LLM 结构化改写（改写会变更指标措辞致正则抽取器漏抽，且把 LLM 风险引入确定性轨）。
-    raw_en = await translate_to_en(zh_patient_data)
+    translated_en = await translate_to_en(zh_patient_data)   # 一次汉译英：供 B 检索/推理 + 规则抽取
     _stage("rules")
-    metrics = await extractor.extract_metrics(raw_en)
+    metrics = await extractor.extract_metrics(translated_en)
     active_rules = await fetch_active_rules(conn)
     rule_hits = rules_engine.evaluate_rules(metrics, active_rules)
     rule_hits_dicts = [
@@ -322,9 +316,9 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -
 
     # 流程 A2：国内指南 + llama 中文推理
     _stage("a2_retrieve")
-    a_guidelines = await retrieve_domestic_guidelines(conn, structured_zh)
+    a_guidelines = await retrieve_domestic_guidelines(conn, zh_patient_data)
     _stage("a2_reason")
-    report_a_zh = await reason_a2(structured_zh, a_guidelines)
+    report_a_zh = await reason_a2(zh_patient_data, a_guidelines)
     sources_a = [g["citation_id"] for g in a_guidelines]
     _partial({"report_a_zh": report_a_zh, "sources_a": sources_a,
               "a_model": MODEL_A2_REASONING})                       # A 轨结论流出

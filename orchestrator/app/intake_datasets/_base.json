@@ -1,0 +1,29 @@
+{
+  "_doc": "通用骨架（各科共享）。临床字段一律外挂在此与各科 <code>.json，禁止写回 lab.py。",
+  "chief": {
+    "title": "主诉",
+    "field": {"key": "主诉", "label": "最困扰你的问题（一句话）", "type": "text",
+              "placeholder": "如：体检发现结节 / 活动后胸闷 / 反复头痛 / 尿频 3 天"}
+  },
+  "common_hpi": [
+    {"key": "起病时间", "label": "起病时间", "type": "single",
+     "options": ["数小时内", "1–3 天", "1 周内", "1 月内", "更久"]},
+    {"key": "诱因", "label": "诱因", "type": "single",
+     "options": ["受凉", "劳累", "饮食不当", "情绪/精神", "用药后", "无明显诱因"]},
+    {"key": "部位", "label": "部位", "type": "text", "placeholder": "症状所在部位"},
+    {"key": "性质", "label": "性质/特点", "type": "text", "placeholder": "如：胀痛 / 烧灼 / 阵发"},
+    {"key": "程度", "label": "程度", "type": "single", "options": ["轻", "中", "重"]},
+    {"key": "加重缓解", "label": "加重 / 缓解因素", "type": "text", "placeholder": "什么时候加重、什么能缓解"},
+    {"key": "演变", "label": "演变趋势", "type": "single",
+     "options": ["逐渐加重", "时好时坏", "逐渐好转", "无明显变化"]}
+  ],
+  "history_sections": [
+    {"key": "pmh", "title": "既往史 · 手术史", "fields": [
+      {"key": "既往史", "label": "既往疾病 / 手术（可多选）", "type": "multi",
+       "options": ["高血压", "糖尿病", "冠心病", "手术史", "过敏史", "无"]}]},
+    {"key": "med", "title": "用药史", "fields": [
+      {"key": "用药", "label": "正在服用的药物", "type": "text", "placeholder": "药名 / 剂量，无则填无"}]},
+    {"key": "fh", "title": "家族史", "fields": [
+      {"key": "家族史", "label": "家族遗传 / 类似病史", "type": "text", "placeholder": "如多囊肾 / 肿瘤家族史，无则填无"}]}
+  ]
+}

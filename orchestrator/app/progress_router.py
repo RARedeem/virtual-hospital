@@ -68,7 +68,6 @@ ASSESS_FILE = os.environ.get("ASSESS_PROGRESS_FILE", "/tmp/vh_assess_progress.js
 
 # 阶段按 pipeline.run_dual 实际执行顺序排列
 ASSESS_STAGES = [
-    ("structure",    "结构化症状包 · llama3.3"),
     ("translate_en", "汉译英 · gemma4"),
     ("rules",        "抽取指标 + 规则引擎"),
     ("a2_retrieve",  "检索国内指南 · bge-m3"),

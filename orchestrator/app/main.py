@@ -15,6 +15,8 @@ from . import interviewer as interviewer_module
 from . import storage
 from . import ocr
 from . import progress_router as progress_router_mod
+from . import intake_schema
+from . import package_serializer
 from .auth import Principal
 
 PG_DSN = os.environ["PG_DSN"]
@@ -54,6 +56,11 @@ class InterviewStartRequest(BaseModel):
 
 class InterviewChatRequest(BaseModel):
     message: str
+
+
+class IntakeRequest(BaseModel):
+    member_id: str
+    package: dict          # 方案A 注册式表单产出的结构化症状包
 
 
 class AssessResponse(BaseModel):
@@ -208,6 +215,52 @@ async def list_member_records(member_id: str,
          "record_date": str(r[3]) if r[3] else None, "extracted_zh": r[4]}
         for r in rows
     ]
+
+
+# ── 注册式采集（方案A）：表单 schema 公开；症状包归档需鉴权。友好衔接既有评估流，不动评估 UI ──
+
+@app.get("/interview/depts")
+async def interview_depts():
+    """科室列表（来自外挂数据集 intake_datasets/*.json）。公开元数据，无敏感信息。"""
+    try:
+        return {"depts": intake_schema.list_depts()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据集加载失败: {e}")
+
+
+@app.get("/interview/schema")
+async def interview_schema(dept: str = "urology"):
+    """注册式采集表单 schema（数据集驱动，按器官系统组织）。公开。"""
+    try:
+        return intake_schema.schema_for(dept)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据集加载失败: {e}")
+
+
+@app.post("/symptom-packages/intake")
+async def intake_symptom_package(req: IntakeRequest,
+                                 principal: Principal = Depends(auth.get_principal)):
+    """方案A 结构化症状包 → 序列化(extracted_zh) → 归档为 symptom_package，返回 record_id。
+    友好衔接：归档后患者照旧点既有「运行双盲评估」→ /assess；评估流 UI 一律不动。"""
+    auth.authorize_member_access(principal, req.member_id)
+    body = package_serializer.to_extracted_zh(req.package or {})
+    if not body.strip():
+        raise HTTPException(status_code=400, detail="空症状包：无可归档内容")
+    async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO member_data.health_records
+                    (member_id, record_type, source_org, record_date, extracted_zh)
+                VALUES (%s, 'symptom_package', 'AI问诊·注册式', %s, %s)
+                RETURNING id
+                """,
+                (req.member_id, date.today(), body),
+            )
+            rec_id = (await cur.fetchone())[0]
+            await conn.commit()
+    await auth.log_access(principal, "archive_symptom_package", req.member_id)
+    return {"archived_record_id": str(rec_id)}
 
 
 @app.post("/interview/start")
