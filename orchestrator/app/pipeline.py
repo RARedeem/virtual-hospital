@@ -107,7 +107,12 @@ async def reason(patient_en: str, guidelines: list[dict],
     sys_prompt = (
         "You are an Evidence-Based Medicine Expert. You must strictly output the "
         "3-part structured assessment as shown in the example. Assess ONLY findings "
-        "explicitly present in the patient case; never invent values or guideline content."
+        "explicitly present in the patient case; never invent values or guideline content. "
+        "In Part 1 (Clinical Impression), you MUST first enumerate ALL suspicious / "
+        "to-be-investigated objective findings present in the case (e.g., space-occupying "
+        "lesion or mass, heterogeneous echo, ill-defined margins, nodule, hydronephrosis, "
+        "gross hematuria), even those with NO retrieved guideline; do not focus only on "
+        "guideline-matchable findings."
     )
     shot_user = (
         "CLINICAL EVIDENCE:\n"
@@ -214,6 +219,9 @@ async def reason_a2(patient_zh: str, guidelines: list[dict]) -> str:
     sys_prompt = (
         "你是一名循证医学专家。严格按示例输出 3 段式中文评估。"
         "只评估患者病例中明确给出的发现，绝不臆造数值或指南内容。"
+        "第 1 段【临床印象】必须先逐条点出病例中所有‘可疑/需进一步排查’的客观发现"
+        "（如占位、不均质回声、边界不清、结节、积水、肉眼血尿等），即使未检索到对应指南"
+        "也不得遗漏；不要只挑能对齐指南的发现。"
     )
     shot_user = (
         "临床证据：\n"
@@ -254,7 +262,10 @@ async def structure_symptom_package(zh_blob: str) -> str:
         "2. 只做归类与整理，不做诊断、不臆测、不新增信息、不删减。\n"
         "3. 按以下模板分节输出（某节无内容写『无』）：\n"
         "【主诉】\n【现病史】（症状/起病时间/诱因）\n【既往史·手术史】\n【用药】\n【家族史】\n"
-        "【客观检查发现】（按器官系统或报告分组，逐条列出数值与发现）\n【关键异常指标】（指标=数值，逐条）"
+        "【客观检查发现】（按器官系统或报告分组，逐条列出数值与发现）\n"
+        "【可疑·需进一步排查的发现】（仅客观摘录报告中如占位、不均质回声、边界不清、结节、"
+        "积水、肉眼血尿等措辞，逐条列出，一项不漏；无则写『无』。只摘录不诊断）\n"
+        "【关键异常指标】（指标=数值，逐条）"
     )
     user = f"【原始病历信息】\n{zh_blob}\n\n请输出结构化转诊摘要："
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
