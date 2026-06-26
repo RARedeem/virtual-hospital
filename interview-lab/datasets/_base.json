@@ -19,8 +19,10 @@
   ],
   "history_sections": [
     {"key": "pmh", "title": "既往史 · 手术史", "fields": [
-      {"key": "既往史", "label": "既往疾病 / 手术（可多选）", "type": "multi",
-       "options": ["高血压", "糖尿病", "冠心病", "手术史", "过敏史", "无"]}]},
+      {"key": "既往史", "label": "既往疾病（可多选）", "type": "multi",
+       "options": ["高血压", "糖尿病", "冠心病", "过敏史", "无"]},
+      {"key": "手术史", "label": "手术史（何时 · 做过何种手术）", "type": "text",
+       "placeholder": "如：2025-03 右肾囊肿切除 / 2018 胆囊切除；多个分行写，无则填无"}]},
     {"key": "med", "title": "用药史", "fields": [
       {"key": "用药", "label": "正在服用的药物", "type": "text", "placeholder": "药名 / 剂量，无则填无"}]},
     {"key": "fh", "title": "家族史", "fields": [
