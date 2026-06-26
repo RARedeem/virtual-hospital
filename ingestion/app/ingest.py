@@ -9,40 +9,40 @@
   约束 B 分流程适用（ARCHITECTURE §2）：流程 A 允许国内指南；bge-m3 为约束 A 例外，
   仅限流程 A 国内指南检索。详见 db/init/04_domestic_kb.sql。
 """
+import json
 import os
 import re
 import sys
 
 from . import parser
 
-# 应用层来源黑名单（约束 B）。数据库 CHECK 约束为第二道防线。仅 international scope 生效。
-_PRC_PATTERNS = [
-    r"卫健委", r"卫生健康委", r"中华医学会", r"药监局", r"疾控中心",
-    r"\bNHC\b",                        # National Health Commission
-    r"chinese medical association", r"\bCMA\b",
-]
-_PRC_REGEX = re.compile("|".join(_PRC_PATTERNS), re.IGNORECASE)
+# 跨服务统一设置（repo 根 config/，docker-compose 挂载到 /config）。设置最大化、运行模块最小化。
+_CONFIG = os.environ.get("CONFIG_DIR", "/config")
 
-MODEL_EMBED = os.environ.get("MODEL_EMBED", "nomic-embed-text:v1.5")
-MODEL_EMBED_CN = os.environ.get("MODEL_EMBED_CN", "bge-m3")
 
-# scope 配置：表名、向量模型、维度、是否走约束 B 校验
-_SCOPE_CFG = {
-    "international": {
-        "sources_table": "knowledge_base.guideline_sources",
-        "chunks_table": "knowledge_base.guideline_chunks",
-        "embed_model": MODEL_EMBED,
-        "embed_dim": 768,
-        "validate_prc": True,
-    },
-    "domestic": {
-        "sources_table": "domestic_kb.guideline_sources_cn",
-        "chunks_table": "domestic_kb.guideline_chunks_cn",
-        "embed_model": MODEL_EMBED_CN,
-        "embed_dim": 1024,
-        "validate_prc": False,   # 约束 B 分流程：流程 A 允许国内指南
-    },
-}
+def _load_config(rel: str):
+    with open(os.path.join(_CONFIG, rel), encoding="utf-8") as f:
+        return json.load(f)
+
+
+# 约束 B 来源黑名单 → 外挂 config/constraints/constraint_b_sources.json（DB CHECK 为第二道防线）
+_PRC_REGEX = re.compile(
+    "|".join(_load_config("constraints/constraint_b_sources.json")["prc_org_patterns"]),
+    re.IGNORECASE)
+
+# scope 配置（表名/向量模型/维度/约束B校验，含切片入库归类）→ 外挂 config/ingestion/scopes.json
+# embed_model 同名 env 可覆盖（部署灵活）
+_SCOPE_CFG = {}
+for _scope, _cfg in _load_config("ingestion/scopes.json").items():
+    if _scope.startswith("_"):
+        continue
+    _SCOPE_CFG[_scope] = {
+        "sources_table": _cfg["sources_table"],
+        "chunks_table": _cfg["chunks_table"],
+        "embed_model": os.environ.get(_cfg.get("embed_env", "")) or _cfg["embed_model"],
+        "embed_dim": _cfg["embed_dim"],
+        "validate_prc": _cfg["validate_prc"],
+    }
 
 
 class SourceRejectedError(Exception):

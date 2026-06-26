@@ -1,0 +1,7 @@
+{
+  "_doc": "约束A：中国大陆机构模型黑名单（不可上线于推理/翻译/检索任何评估环节）。lab 模型选择器据此标注「⚠大陆」。bge 在列但流程A国内指南检索为约束A例外（见 ARCHITECTURE §2）。值为模型名匹配正则片段。",
+  "banned_name_patterns": [
+    "qwen", "huatuo", "deepseek", "glm", "chatglm", "baichuan",
+    "internlm", "\\byi\\b", "bge", "ernie"
+  ]
+}

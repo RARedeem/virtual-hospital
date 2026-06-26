@@ -20,8 +20,10 @@
 import base64, glob, json, mimetypes, os, re, subprocess, tempfile, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# 约束A：中国大陆机构模型（仅供实验对照，不可上线）
-BANNED = re.compile(r"qwen|huatuo|deepseek|glm|chatglm|baichuan|internlm|\byi\b|bge|ernie", re.I)
+# 约束A：中国大陆机构模型黑名单 → 外挂 repo 根 config/（跨服务统一设置，宿主直读，仍纯标准库）
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config",
+                       "constraints", "constraint_a_models.json"), encoding="utf-8") as _f:
+    BANNED = re.compile("|".join(json.load(_f)["banned_name_patterns"]), re.I)
 
 OLLAMA = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 PORT = int(os.environ.get("LAB_PORT", "8010"))

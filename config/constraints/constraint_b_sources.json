@@ -1,0 +1,7 @@
+{
+  "_doc": "约束B：指南来源机构黑名单。国际白名单库 knowledge_base 拒收大陆官方/学会来源（app层一道、DB CHECK 二道）。仅 international scope 生效。值为 org/title 匹配正则片段。",
+  "prc_org_patterns": [
+    "卫健委", "卫生健康委", "中华医学会", "药监局", "疾控中心",
+    "\\bNHC\\b", "chinese medical association", "\\bCMA\\b"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "_doc": "指南摄取 scope 配置（切片入哪个库/用哪个向量/维度/是否走约束B校验）。req#4：指南切片/入库/归类纳入设置。embed_model 同名 env(MODEL_EMBED/MODEL_EMBED_CN)可覆盖。",
+  "international": {
+    "sources_table": "knowledge_base.guideline_sources",
+    "chunks_table": "knowledge_base.guideline_chunks",
+    "embed_model": "nomic-embed-text:v1.5",
+    "embed_env": "MODEL_EMBED",
+    "embed_dim": 768,
+    "validate_prc": true
+  },
+  "domestic": {
+    "sources_table": "domestic_kb.guideline_sources_cn",
+    "chunks_table": "domestic_kb.guideline_chunks_cn",
+    "embed_model": "bge-m3",
+    "embed_env": "MODEL_EMBED_CN",
+    "embed_dim": 1024,
+    "validate_prc": false
+  }
+}

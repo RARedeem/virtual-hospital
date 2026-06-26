@@ -148,6 +148,7 @@ services:
       - no_proxy=localhost,127.0.0.1,::1,ollama,postgres,minio
     volumes:
       - ./guidelines:/data:ro          # 将待摄取 PDF 放入 ./guidelines
+      - ./config:/config:ro            # 跨服务统一设置（scope/约束B），见 config/
     depends_on:
       ollama:
         condition: service_healthy
