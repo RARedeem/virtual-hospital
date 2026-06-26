@@ -1,0 +1,8 @@
+{
+  "_doc": "规则库已知指标键名，约束抽取输出避免键名漂移（与 rules.clinical_rules.metric 对齐；理想由该表派生）。",
+  "known_metrics": [
+    "fasting_glucose_mmol_l", "hba1c_percent", "ldl_mmol_l", "hdl_mmol_l",
+    "triglycerides_mmol_l", "systolic_bp_mmhg", "diastolic_bp_mmhg",
+    "creatinine_umol_l", "alt_u_l", "ast_u_l"
+  ]
+}

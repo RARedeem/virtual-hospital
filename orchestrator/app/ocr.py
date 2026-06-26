@@ -20,7 +20,7 @@ from . import settings
 # 模型/参数外挂（设置最大化）；env 可覆盖模型
 _tun_ocr = settings.load("tunables.json")["ocr"]
 OCR_MODEL = os.environ.get("OCR_MODEL") or settings.load("models.json")["ocr"]
-_OCR_PROMPT = "识别图片中的所有文字，原样输出，保留数值与单位，不要解释、不要翻译。"
+_OCR_PROMPT = settings.text("prompts/ocr.txt").strip()
 _OCR_OPTIONS = {"temperature": 0, "num_predict": _tun_ocr["num_predict"], "stop": _tun_ocr["stop"]}
 _MAX_PDF_PAGES = _tun_ocr["max_pdf_pages"]
 _PDF_DPI = _tun_ocr["pdf_dpi"]

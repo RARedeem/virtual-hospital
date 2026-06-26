@@ -8,32 +8,14 @@ import json
 import os
 
 from . import ollama_client as oc
+from . import settings
 
-MODEL_TRANSLATE = os.environ.get("MODEL_TRANSLATE", "translator-zh-en")
+MODEL_TRANSLATE = os.environ.get("MODEL_TRANSLATE") or settings.load("models.json")["translate_zh_en"]
 
-# 规则库已知指标键名，约束抽取输出，避免键名漂移
-KNOWN_METRICS = [
-    "fasting_glucose_mmol_l",
-    "hba1c_percent",
-    "ldl_mmol_l",
-    "hdl_mmol_l",
-    "triglycerides_mmol_l",
-    "systolic_bp_mmhg",
-    "diastolic_bp_mmhg",
-    "creatinine_umol_l",
-    "alt_u_l",
-    "ast_u_l",
-]
-
-_EXTRACT_SYSTEM = """You are a clinical data extractor. From the English health data, extract ONLY numeric lab/vital values.
-
-Rules:
-1. Output a single JSON object. Keys MUST be from this exact list; omit any not present in the data:
-""" + "\n".join(f"   - {m}" for m in KNOWN_METRICS) + """
-2. Values must be numbers in the unit implied by the key name. Convert if the source uses a different unit.
-3. Do NOT interpret, diagnose, or add fields. Output ONLY the JSON object, no preamble, no markdown fences.
-4. If no recognizable values are present, output {}.
-"""
+# 指标键名 + 抽取系统词 → 外挂 settings（设置最大化）；模板 {metrics} 注入键名清单
+KNOWN_METRICS = settings.load("clinical/metrics.json")["known_metrics"]
+_EXTRACT_SYSTEM = settings.text("prompts/extract.txt").replace(
+    "{metrics}", "\n".join(f"   - {m}" for m in KNOWN_METRICS))
 
 
 async def extract_metrics(patient_en: str) -> dict[str, float]:
