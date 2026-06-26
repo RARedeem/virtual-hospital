@@ -4,65 +4,22 @@
 本模块把方案A 注册式表单产出的结构化症状包，忠实摊平成带标签的中文供下游消费。
 
 双盲纪律：只输出【原始采集数据 + 佐证识别文本】，【不】输出方案A 自己用小模型预生成的
-“阳性发现/建议补充”等结论——推理留给 run_dual 自行完成。
-
-红旗归集（连调实测加入）：把报告原文里“占位/不均质/边界不清/结节/积水/肉眼血尿…”这类
-【客观异常措辞】原句摘录到一个高亮分区，防止推理器只盯能对齐指南的发现而漏看可疑病灶。
-注意：只做【措辞摘录与去否定】，不下任何诊断、不新增信息——仍守双盲。
+“阳性发现/建议补充”等结论，也【不】替推理器划重点（红旗高亮区已撤）——推理保持中立，留给 run_dual。
 """
 from typing import Any
-import re
 
 from . import report_parser
 from . import settings
 
-# 具体内容全外挂（设置最大化）：跳过字段 + 红旗词/否定词
+# 具体内容全外挂（设置最大化）：跳过字段
 _SKIP_KEYS = set(settings.load("clinical/serializer.json")["skip_keys"])
 _EMPTY = (None, "", [], {})
-_rf = settings.load("clinical/redflags.json")
-_REDFLAG = tuple(_rf["keywords"])
-_NEG = tuple(_rf["negations"])
 
 
 def _render_val(v: Any) -> str:
     if isinstance(v, list):
         return "、".join(str(x).strip() for x in v if str(x).strip())
     return str(v).strip()
-
-
-def _gather_content(pkg: dict) -> str:
-    """汇集患者客观内容（专科所见/佐证识别文本/各字段值），供红旗扫描；不含我加的标签。"""
-    parts: list[str] = []
-
-    def walk(v):
-        if isinstance(v, dict):
-            for k, sv in v.items():
-                if k not in _SKIP_KEYS:
-                    walk(sv)
-        elif isinstance(v, list):
-            for x in v:
-                walk(x)
-        elif v not in _EMPTY:
-            parts.append(str(v))
-
-    walk({k: v for k, v in pkg.items() if k != "佐证材料"})
-    for m in (pkg.get("佐证材料") or []):
-        if isinstance(m, dict) and m.get("识别文本"):
-            parts.append(str(m["识别文本"]))
-    return "\n".join(parts)
-
-
-def collect_red_flags(text: str) -> list[str]:
-    """把含红旗措辞、且非否定语境的小句原文摘录出来（去重保序）。"""
-    flags, seen = [], set()
-    for clause in re.split(r"[。；;\n、，,]", text or ""):
-        c = clause.strip()
-        if not c or c in seen:
-            continue
-        if any(k in c for k in _REDFLAG) and not any(n in c for n in _NEG):
-            seen.add(c)
-            flags.append(c)
-    return flags
 
 
 def to_extracted_zh(pkg: dict) -> str:
@@ -76,12 +33,8 @@ def to_extracted_zh(pkg: dict) -> str:
         head.append(f"【科室】{_render_val(pkg['科室'])}")
     if pkg.get("主诉"):
         head.append(f"【主诉】{_render_val(pkg['主诉'])}")
-
-    # 红旗高亮区（紧跟主诉，置顶强调）
-    flags = collect_red_flags(_gather_content(pkg))
-    if flags:
-        head.append("【需进一步排查的客观发现（报告原文摘录，非诊断）】")
-        head.extend(f"· {f}" for f in flags)
+    # 不再在主诉后插"红旗高亮区"：① 与下方【检查报告】内容重复；② 污染主诉区；
+    # ③ 替推理器划重点违中立原则。报告原文只在【检查报告】出现一次，推理保持中立。
 
     body: list[str] = []
     for k, v in pkg.items():
