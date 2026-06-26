@@ -17,6 +17,7 @@ CREATE TABLE member_data.members (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     full_name   TEXT NOT NULL,
     birth_date  DATE,
+    sex         TEXT,                  -- 男 / 女（循证推理按性别分层之基础）
     relation    TEXT,                  -- 本人 / 配偶 / 子女 / 父母
     created_at  TIMESTAMPTZ DEFAULT now()
 );

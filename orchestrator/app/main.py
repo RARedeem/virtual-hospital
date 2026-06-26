@@ -178,19 +178,19 @@ async def list_members(principal: Principal = Depends(auth.get_principal)):
         async with conn.cursor() as cur:
             if principal.role == "admin":
                 await cur.execute(
-                    "SELECT id, full_name, relation, birth_date, role "
+                    "SELECT id, full_name, relation, birth_date, sex, role "
                     "FROM member_data.members ORDER BY created_at"
                 )
             else:
                 await cur.execute(
-                    "SELECT id, full_name, relation, birth_date, role "
+                    "SELECT id, full_name, relation, birth_date, sex, role "
                     "FROM member_data.members WHERE id = %s",
                     (principal.member_id,),
                 )
             rows = await cur.fetchall()
     return [
         {"id": str(r[0]), "full_name": r[1], "relation": r[2],
-         "birth_date": str(r[3]) if r[3] else None, "role": r[4]}
+         "birth_date": str(r[3]) if r[3] else None, "sex": r[4], "role": r[5]}
         for r in rows
     ]
 
@@ -379,6 +379,19 @@ async def upload_report(
             "record_date": str(date.today()), "source_org": source_org}
 
 
+def _demographics_line(birth_date, sex) -> str:
+    """从成员档案构造【基本信息】行（性别·年龄）。循证推理需按性别/年龄分层，故注入患者数据头部。"""
+    parts = []
+    s = (sex or "").strip()
+    if s:
+        parts.append(f"性别：{s}")
+    if birth_date:
+        today = date.today()
+        age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+        parts.append(f"年龄：{age} 岁")
+    return ("【基本信息】" + "；".join(parts)) if parts else ""
+
+
 @app.post("/assess", response_model=AssessResponse)
 async def assess(req: AssessRequest,
                  principal: Principal = Depends(auth.get_principal)):
@@ -406,6 +419,17 @@ async def assess(req: AssessRequest,
                     raise HTTPException(status_code=400,
                                         detail="无可评估数据：请提供 zh_data 或先完成一次问诊生成症状包")
                 patient_zh = row[0]
+
+            # 注入【基本信息】性别·年龄（取自成员档案，单一可信源）——循证推理按性别/年龄分层之基础。
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT birth_date, sex FROM member_data.members WHERE id = %s",
+                    (req.member_id,))
+                _m = await cur.fetchone()
+            if _m:
+                _demo = _demographics_line(_m[0], _m[1])
+                if _demo and "【基本信息】" not in patient_zh:
+                    patient_zh = _demo + "\n" + patient_zh
 
             # psycopg3 fetch 封装（简化版，生产可换 asyncpg）
             # 评估阶段进度：run_dual 每进一阶段回调写进度，前端轮询 GET /progress/assess 展示
