@@ -1,0 +1,6 @@
+{
+  "_doc": "可调项（设置最大化）。检索/推理参数。",
+  "retrieve_top_k": 3,
+  "context_chunk_chars": 250,
+  "reasoning_options": {"temperature": 0.0, "num_predict": 1024}
+}

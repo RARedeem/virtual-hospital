@@ -1,0 +1,11 @@
+{
+  "_doc": "各环节模型分配（设置最大化）。代码以此为准；同名 env 变量可覆盖（部署灵活）。值为实际部署所用，非陈旧占位。",
+  "translate_zh_en": "translator-zh-en",
+  "translate_en_zh": "translator-en-zh",
+  "reasoning_b": "llama4:16x17b",
+  "embed_international": "nomic-embed-text:v1.5",
+  "reasoning_a2": "llama3.3:70b",
+  "embed_domestic": "bge-m3",
+  "structure": "llama3.3:70b",
+  "ocr": "glm-ocr"
+}

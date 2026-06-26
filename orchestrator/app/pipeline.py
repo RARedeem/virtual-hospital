@@ -22,27 +22,31 @@ _EXCL = settings.load("constraints/retrieval_exclude_sections.json")
 _EXCL_EN = "|".join(_EXCL["international"])
 _EXCL_CN = "|".join(_EXCL["domestic"])
 
-MODEL_TRANSLATE = os.environ.get("MODEL_TRANSLATE", "translator-zh-en")
-MODEL_TRANSLATE_BACK = os.environ.get("MODEL_TRANSLATE_BACK", "translator-en-zh")
-MODEL_REASONING = os.environ.get("MODEL_REASONING", "reasoner-meditron")
-MODEL_EMBED = os.environ.get("MODEL_EMBED", "nomic-embed-text:v1.5")
+_MODELS = settings.load("models.json")
+
+
+def _model(env_key: str, settings_key: str) -> str:
+    """模型分配以 settings 为准；同名 env 可覆盖（部署灵活）。"""
+    return os.environ.get(env_key) or _MODELS[settings_key]
+
+
+MODEL_TRANSLATE = _model("MODEL_TRANSLATE", "translate_zh_en")
+MODEL_TRANSLATE_BACK = _model("MODEL_TRANSLATE_BACK", "translate_en_zh")
+MODEL_REASONING = _model("MODEL_REASONING", "reasoning_b")
+MODEL_EMBED = _model("MODEL_EMBED", "embed_international")
 
 # ── 流程 A2（双盲另一轨）：llama 中文原生推理 + 国内指南 ──
 # 约束 A 例外：bge-m3（北京智源）仅用于流程 A 国内指南检索，严禁进入翻译/流程 B 任何环节。
 # 边界见 ARCHITECTURE §2 / db/init/04_domestic_kb.sql。
-MODEL_A2_REASONING = os.environ.get("MODEL_A2_REASONING", "llama3.3:70b")
-MODEL_EMBED_CN = os.environ.get("MODEL_EMBED_CN", "bge-m3")
-# 结构化预处理：把零散症状包+佐证整理成结构化转诊摘要（reorganize，非summarize）。约束A合规。
-MODEL_STRUCTURE = os.environ.get("MODEL_STRUCTURE", "llama3.3:70b")
+MODEL_A2_REASONING = _model("MODEL_A2_REASONING", "reasoning_a2")
+MODEL_EMBED_CN = _model("MODEL_EMBED_CN", "embed_domestic")
+MODEL_STRUCTURE = _model("MODEL_STRUCTURE", "structure")
 
-# RAG 上下文收敛（数据/检索层，非模型链）：喂给 meditron 的上下文过长会导致其
-# 生成失控/回吐（联调实测 ~1万字符 → >33min 超时）。聚焦少量短块，与历史验证场景的
-# 上下文量级一致，使 meditron 能消化并自然收尾。
-RETRIEVE_TOP_K = 3
-CONTEXT_CHUNK_CHARS = 250   # 仿已验证的 ebm-ai-pipeline：每条证据截断 250 字符，聚焦阈值
-
-# 推理参数（仿生产）：温度 0、输出上限 1024，确定且有界
-REASONING_OPTIONS = {"temperature": 0.0, "num_predict": 1024}
+# 检索/推理可调项 → 外挂 settings/tunables.json（top_k/截断/推理参数）
+_TUN = settings.load("tunables.json")
+RETRIEVE_TOP_K = _TUN["retrieve_top_k"]
+CONTEXT_CHUNK_CHARS = _TUN["context_chunk_chars"]
+REASONING_OPTIONS = _TUN["reasoning_options"]
 
 # 中英医学术语对照表，作为翻译提示补充
 _TERMS_PATH = Path("/app/terminology/medical_terms.json")
