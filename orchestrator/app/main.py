@@ -77,10 +77,11 @@ class AssessResponse(BaseModel):
     b_model: str = ""      # 流程 B 推理模型
 
 
-# 上传报告的格式与大小约束（服务端二次校验，不信客户端 Content-Type 之外的声明）
-ALLOWED_UPLOAD_MIME = {"application/pdf", "image/jpeg", "image/png"}
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
-ALLOWED_RECORD_TYPES = {"lab_report", "imaging", "checkup", "prescription"}
+# 上传/佐证约束 → 外挂 settings/tunables.json（设置最大化）。服务端二次校验仍在。
+_tun = settings.load("tunables.json")
+ALLOWED_UPLOAD_MIME = set(_tun["upload"]["allowed_mime"])
+MAX_UPLOAD_BYTES = _tun["upload"]["max_bytes"]
+ALLOWED_RECORD_TYPES = set(_tun["upload"]["allowed_record_types"])
 
 # 字段/类型标签 → 外挂 settings/clinical/labels.json（设置最大化）
 _labels = settings.load("clinical/labels.json")
@@ -106,8 +107,8 @@ def _package_to_zh(pkg: dict) -> str:
 # 在档佐证料聚合：把成员既往报告并入症状包，使评估有全局依据、更权威。
 # 限量 + 每条截断：避免把 meditron 的患者上下文撑回失控量级。
 EVIDENCE_TYPE_LABEL = _labels["evidence_types"]
-EVIDENCE_MAX_RECORDS = 6
-EVIDENCE_CHARS_PER_RECORD = 350
+EVIDENCE_MAX_RECORDS = _tun["evidence"]["max_records"]
+EVIDENCE_CHARS_PER_RECORD = _tun["evidence"]["chars_per_record"]
 
 
 async def _gather_member_evidence(conn, member_id: str) -> str:

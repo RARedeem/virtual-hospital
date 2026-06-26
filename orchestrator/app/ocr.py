@@ -15,11 +15,15 @@ import subprocess
 import tempfile
 
 from . import ollama_client as oc
+from . import settings
 
-OCR_MODEL = "glm-ocr"
+# 模型/参数外挂（设置最大化）；env 可覆盖模型
+_tun_ocr = settings.load("tunables.json")["ocr"]
+OCR_MODEL = os.environ.get("OCR_MODEL") or settings.load("models.json")["ocr"]
 _OCR_PROMPT = "识别图片中的所有文字，原样输出，保留数值与单位，不要解释、不要翻译。"
-_OCR_OPTIONS = {"temperature": 0, "num_predict": 1536, "stop": ["```"]}
-_MAX_PDF_PAGES = 12
+_OCR_OPTIONS = {"temperature": 0, "num_predict": _tun_ocr["num_predict"], "stop": _tun_ocr["stop"]}
+_MAX_PDF_PAGES = _tun_ocr["max_pdf_pages"]
+_PDF_DPI = _tun_ocr["pdf_dpi"]
 
 
 async def _ocr_image_bytes(img_bytes: bytes) -> str:
@@ -34,7 +38,7 @@ def _pdf_to_png_pages(pdf_bytes: bytes) -> list[bytes]:
     """PDF → 每页 PNG 字节。依赖 pdf2image + poppler-utils。"""
     from pdf2image import convert_from_bytes
 
-    pages = convert_from_bytes(pdf_bytes, dpi=200, fmt="png")[:_MAX_PDF_PAGES]
+    pages = convert_from_bytes(pdf_bytes, dpi=_PDF_DPI, fmt="png")[:_MAX_PDF_PAGES]
     out = []
     for page in pages:
         buf = io.BytesIO()
