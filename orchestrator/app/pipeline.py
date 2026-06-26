@@ -47,6 +47,7 @@ _TUN = settings.load("tunables.json")
 RETRIEVE_TOP_K = _TUN["retrieve_top_k"]
 CONTEXT_CHUNK_CHARS = _TUN["context_chunk_chars"]
 REASONING_OPTIONS = _TUN["reasoning_options"]
+_RP = settings.load("prompts/reasoning.json")   # 循证推理 prompt（B/A2）外挂
 
 # 中英医学术语对照表，作为翻译提示补充
 _TERMS_PATH = Path("/app/terminology/medical_terms.json")
@@ -115,42 +116,11 @@ async def reason(patient_en: str, guidelines: list[dict],
         for g in guidelines
     )
 
-    sys_prompt = (
-        "You are an Evidence-Based Medicine Expert. You must strictly output the "
-        "3-part structured assessment as shown in the example. Assess ONLY findings "
-        "explicitly present in the patient case; never invent values or guideline content. "
-        "In Part 1 (Clinical Impression), you MUST first enumerate ALL suspicious / "
-        "to-be-investigated objective findings present in the case (e.g., space-occupying "
-        "lesion or mass, heterogeneous echo, ill-defined margins, nodule, hydronephrosis, "
-        "gross hematuria), even those with NO retrieved guideline; do not focus only on "
-        "guideline-matchable findings. "
-        "Base the assessment primarily on objective medical reports / examination findings; "
-        "treat the patient's chief complaint and symptoms as secondary/supporting."
-    )
-    shot_user = (
-        "CLINICAL EVIDENCE:\n"
-        "- Stage 2 Hypertension is defined as BP >= 140/90.\n"
-        "- If BP >= 130/80 and high CVD risk, start medication.\n\n"
-        "PATIENT CASE: The patient has a resting blood pressure of 145/95 mmHg.\n\n"
-        "ASSESSMENT:"
-    )
-    shot_asst = (
-        "1. CLINICAL IMPRESSION: Stage 2 Hypertension.\n"
-        "2. GUIDELINE ALIGNMENT: Based on the provided evidence, the patient's BP "
-        "(145/95) strictly meets the criteria for Stage 2 Hypertension (>= 140/90).\n"
-        "3. RECOMMENDED ACTION: Initiate pharmacological treatment and schedule a follow-up."
-    )
-    actual_user = (
-        f"CLINICAL EVIDENCE:\n{evidence_str}\n\n"
-        f"PATIENT CASE: {patient_en}\n\n"
-        "ASSESSMENT:"
-    )
-
+    p = _RP["b"]
     messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": shot_user},
-        {"role": "assistant", "content": shot_asst},
-        {"role": "user", "content": actual_user},
+        {"role": "system", "content": p["system"]},
+        *p["fewshot"],
+        {"role": "user", "content": p["user_template"].format(evidence=evidence_str, patient=patient_en)},
     ]
     return await oc.chat(MODEL_REASONING, messages, options=REASONING_OPTIONS)
 
@@ -229,35 +199,11 @@ async def reason_a2(patient_zh: str, guidelines: list[dict]) -> str:
         for g in guidelines
     ) or "-（国内指南库暂无相关片段）"
 
-    sys_prompt = (
-        "你是一名循证医学专家。严格按示例输出 3 段式中文评估。"
-        "只评估患者病例中明确给出的发现，绝不臆造数值或指南内容。"
-        "第 1 段【临床印象】必须先逐条点出病例中所有‘可疑/需进一步排查’的客观发现"
-        "（如占位、不均质回声、边界不清、结节、积水、肉眼血尿等），即使未检索到对应指南"
-        "也不得遗漏；不要只挑能对齐指南的发现。"
-        "评估以医疗机构出具的检查报告/客观所见为主要依据，患者主诉症状为辅。"
-    )
-    shot_user = (
-        "临床证据：\n"
-        "- 《中国高血压防治指南》：诊室血压 ≥140/90 mmHg 即诊断为高血压。\n"
-        "- 高危患者收缩压 ≥130 mmHg 即应启动药物治疗。\n\n"
-        "患者病例：患者静息血压 145/95 mmHg。\n\n评估："
-    )
-    shot_asst = (
-        "1. 临床印象：高血压（2 级）。\n"
-        "2. 指南符合情况：依据所给证据，患者血压（145/95）已达到《中国高血压防治指南》"
-        "的高血压诊断标准（≥140/90）。\n"
-        "3. 建议措施：启动降压药物治疗并安排随访。"
-    )
-    actual_user = (
-        f"临床证据：\n{evidence_str}\n\n"
-        f"患者病例：{patient_zh}\n\n评估："
-    )
+    p = _RP["a2"]
     messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": shot_user},
-        {"role": "assistant", "content": shot_asst},
-        {"role": "user", "content": actual_user},
+        {"role": "system", "content": p["system"]},
+        *p["fewshot"],
+        {"role": "user", "content": p["user_template"].format(evidence=evidence_str, patient=patient_zh)},
     ]
     return await oc.chat(MODEL_A2_REASONING, messages, options=REASONING_OPTIONS)
 
