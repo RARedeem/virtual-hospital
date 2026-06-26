@@ -10,21 +10,33 @@
 import hashlib
 import re
 
-_ITEM = re.compile(r"(检查项目|检查部位|检查名称|项目名称)\s*[:：]\s*([^\n]+)")
-_DIAG = re.compile(r"(临床诊断|送检诊断|初步诊断)\s*[:：]\s*([^\n]+)")
-_DATE = re.compile(r"(报告日期|检查日期|报告时间)\s*[:：]\s*(\d{4}\D+\d{1,2}\D+\d{1,2})")
-_IMPR_HDR = re.compile(r"^\s*(提示|超声提示|诊断意见|印象|结论|检查结论)\s*[:：]?\s*$")
-# 抬头/落款/ID/页脚噪声（不含测值的才剥）
-_NOISE = re.compile(
-    r"医院|住院号|门诊号|检查号|床\s*号|病人\s*ID|样本号|条码|报告单|"
-    r"送检医师|报告医师|审核医师|检查医师|记录者|医师签名|签名|核对|"
-    r"第\s*\d+\s*页|联系电话|地址|结果仅供|妥善保管|遗失不补|备注\s*[:：]")
-# 测值：只认影像尺寸 a×b cm / 单维 cm / 体积 ml —— 不抓散文里的 %/mg（指南正文会爆炸）
+from . import settings
+
+# 报告格式 profile 外挂（设置最大化）：代码只留通用解析机制，字段标记/噪声/单位/印象判定全来自配置。
+_P = settings.load("report_formats/default.json")
+_FM = _P["field_markers"]
+
+
+def _alt(items):
+    return "|".join(items)
+
+
+_ITEM = re.compile(rf"({_alt(_FM['item'])})\s*[:：]\s*([^\n]+)")
+_DIAG = re.compile(rf"({_alt(_FM['diag'])})\s*[:：]\s*([^\n]+)")
+_DATE = re.compile(rf"({_alt(_FM['date'])})\s*[:：]\s*(\d{{4}}\D+\d{{1,2}}\D+\d{{1,2}})")
+_IMPR_HDR = re.compile(rf"^\s*({_alt(_FM['impression_header'])})\s*[:：]?\s*$")
+_NOISE = re.compile(_alt(_P["noise"]))
+_SU, _VU = _alt(_P["size_units"]), _alt(_P["volume_units"])
+# 测值：只认影像尺寸 a×b / 单维 / 体积 —— 不抓散文里的 %/mg（指南正文会爆炸）
 _MEASURE = re.compile(
-    r"([一-龥A-Za-z（()][一-龥A-Za-z（）()/]{0,10}?)?\s*[约为]{0,2}\s*"
-    r"((?:\d+(?:\.\d+)?\s*[x×*]\s*)+\d+(?:\.\d+)?\s*(?:cm|mm)"   # 尺寸 a×b(×c)
-    r"|\d+(?:\.\d+)?\s*ml"                                        # 体积
-    r"|\d+(?:\.\d+)?\s*cm(?![²2/]))")                            # 单维 cm
+    rf"([一-龥A-Za-z（()][一-龥A-Za-z（）()/]{{0,10}}?)?\s*[约为]{{0,2}}\s*"
+    rf"((?:\d+(?:\.\d+)?\s*[x×*]\s*)+\d+(?:\.\d+)?\s*(?:{_SU})"
+    rf"|\d+(?:\.\d+)?\s*(?:{_VU})"
+    rf"|\d+(?:\.\d+)?\s*(?:{_SU})(?![²2/]))")
+_FINDINGS_LABELS = _alt(_P["findings_labels"])
+_SCRUB_HDR = _alt(_FM["item"] + _FM["date"] + _FM["diag"])
+_IMPR_MARKERS = re.compile(_alt(_P["impression_markers"]))
+_IMPR_MAXLEN = _P.get("impression_max_len", 26)
 
 
 def report_fingerprint(text: str) -> str:
@@ -50,19 +62,17 @@ def _norm_date(s):
 
 
 def _scrub(ln):
-    """清掉行内混进的表头：取「检查所见:」之后的正文、去 IMG 占位、剥残留 header 字段。"""
-    ln = re.sub(r"^.*?(?:检查所见|超声所见|影像所见)\s*[:：]\s*", "", ln)
+    """清掉行内混进的表头：取「检查所见:」之后的正文、去 IMG/时间占位、剥残留 header 字段。"""
+    ln = re.sub(rf"^.*?(?:{_FINDINGS_LABELS})\s*[:：]\s*", "", ln)
     ln = re.sub(r"\bIMG\d+\b|\b\d{1,2}:\d{2}\b|\d{4}年\d{1,2}月\d{1,2}日", "", ln)
-    ln = re.sub(r"(?:检查部位|检查项目|临床诊断|报告日期|检查日期|报告时间)\s*[:：]\s*[^\s，。；]*[;；]?", "", ln)
+    ln = re.sub(rf"(?:{_SCRUB_HDR})\s*[:：]\s*[^\s，。；]*[;；]?", "", ln)
     return re.sub(r"\s{2,}", " ", ln).strip(" ;；·-")
 
 
 def _is_impression(line):
-    """无显式「提示:」头时的兜底判定：短结论行（含 提示/印象 性措辞或 ？/-- ）。"""
+    """无显式「提示:」头时的兜底判定：短结论行（含印象性措辞，markers/阈值来自 profile）。"""
     s = line.strip()
-    if len(s) > 26:
-        return False
-    return bool(re.search(r"[？?]|--|—|囊肿|增生|结节|占位|异常|改变|肿大|钙化|狭窄|积水|未见异常", s))
+    return len(s) <= _IMPR_MAXLEN and bool(_IMPR_MARKERS.search(s))
 
 
 def parse_report(text):
