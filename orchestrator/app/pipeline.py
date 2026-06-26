@@ -15,6 +15,12 @@ from pathlib import Path
 from . import ollama_client as oc
 from . import rules_engine
 from . import extractor
+from . import settings
+
+# 检索排除的非临床章节（参考文献/致谢…）→ 外挂 settings（设置最大化）
+_EXCL = settings.load("constraints/retrieval_exclude_sections.json")
+_EXCL_EN = "|".join(_EXCL["international"])
+_EXCL_CN = "|".join(_EXCL["domestic"])
 
 MODEL_TRANSLATE = os.environ.get("MODEL_TRANSLATE", "translator-zh-en")
 MODEL_TRANSLATE_BACK = os.environ.get("MODEL_TRANSLATE_BACK", "translator-en-zh")
@@ -61,12 +67,12 @@ async def retrieve_guidelines(conn, query_en: str, top_k: int = RETRIEVE_TOP_K) 
     """步骤 2：向量检索相关国际指南片段（仅未废弃来源）。"""
     query_vec = await oc.embed(MODEL_EMBED, query_en)
     rows = await conn.fetch(
-        """
+        f"""
         SELECT c.chunk_text, c.section, s.citation_id, s.org
         FROM knowledge_base.guideline_chunks c
         JOIN knowledge_base.guideline_sources s ON c.source_id = s.id
         WHERE s.is_deprecated = false
-          AND c.section !~* '(reference|bibliography|acknowledg|abbreviation|conflict of interest|appendix|disclaimer|publication info)'
+          AND c.section !~* '({_EXCL_EN})'
         ORDER BY c.embedding <=> $1::vector
         LIMIT $2
         """,
@@ -196,12 +202,12 @@ async def retrieve_domestic_guidelines(conn, query_zh: str,
     约束 A 例外：bge-m3 仅在此（流程 A 国内指南检索）使用。"""
     query_vec = await oc.embed(MODEL_EMBED_CN, query_zh)
     rows = await conn.fetch(
-        """
+        f"""
         SELECT c.chunk_text, c.section, s.citation_id, s.org
         FROM domestic_kb.guideline_chunks_cn c
         JOIN domestic_kb.guideline_sources_cn s ON c.source_id = s.id
         WHERE s.is_deprecated = false
-          AND c.section !~* '(参考文献|致谢|缩略语|利益冲突|附录|声明)'
+          AND c.section !~* '({_EXCL_CN})'
         ORDER BY c.embedding <=> $1::vector
         LIMIT $2
         """,
@@ -283,8 +289,7 @@ async def structure_symptom_package(zh_blob: str) -> str:
 # 评估「以检查报告/客观所见为主、主诉为辅」：客观医疗内容（专科所见/佐证报告原文/可疑发现/
 # 关键异常）单独抽出作主检索 query——否则主诉症状会淹没客观占位（实测右肾占位被排尿主诉挤出
 # top-15，而用完整右肾超声所见检索即命中 RCC）。
-_OBJECTIVE_HEADERS = ("专科所见", "佐证材料", "需进一步排查", "客观检查",
-                      "关键异常", "检查报告", "检查所见", "报告原文")
+_OBJECTIVE_HEADERS = tuple(settings.load("clinical/objective_headers.json")["headers"])
 
 
 def _extract_objective(zh: str) -> str:

@@ -1,0 +1,16 @@
+{
+  "_doc": "字段/类型 → 中文标签映射。package_fields=扁平症状包字段顺序与标签；evidence_types=在档报告类型标签。",
+  "package_fields": [
+    ["chief_complaint", "主诉"],
+    ["symptoms", "症状"],
+    ["history", "既往史"],
+    ["medications", "用药"],
+    ["family_history", "家族史"]
+  ],
+  "evidence_types": {
+    "lab_report": "检验报告",
+    "imaging": "影像",
+    "checkup": "体检报告",
+    "prescription": "处方"
+  }
+}

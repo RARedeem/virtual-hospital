@@ -14,20 +14,14 @@ from typing import Any
 import re
 
 from . import report_parser
+from . import settings
 
-# 方案A 小模型预消化的结论 / 纯前端字段，不喂入推理
-_SKIP_KEYS = {"阳性发现", "建议补充", "department_code"}
+# 具体内容全外挂（设置最大化）：跳过字段 + 红旗词/否定词
+_SKIP_KEYS = set(settings.load("clinical/serializer.json")["skip_keys"])
 _EMPTY = (None, "", [], {})
-
-# 客观“需进一步排查”措辞（高精度；不含 增生/增大 等常见良性词，避免淹没真正红旗）
-_REDFLAG = (
-    "占位", "不均质", "不均匀", "边界不清", "边界欠清", "界限不清", "形态不规则",
-    "实性", "肿块", "包块", "结节", "浸润", "侵犯", "充盈缺损", "异常强化", "异常信号",
-    "异常回声", "积水", "钙化", "狭窄", "梗阻", "待排", "不除外", "警惕", "恶性",
-    "肉眼血尿", "潜血",
-)
-# 否定语境（命中红旗词但被否定的小句剔除，如“未见明显异常扩张”）
-_NEG = ("未见", "未发现", "未提示", "阴性", "无异常", "无明显异常")
+_rf = settings.load("clinical/redflags.json")
+_REDFLAG = tuple(_rf["keywords"])
+_NEG = tuple(_rf["negations"])
 
 
 def _render_val(v: Any) -> str:

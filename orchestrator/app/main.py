@@ -17,6 +17,7 @@ from . import ocr
 from . import progress_router as progress_router_mod
 from . import intake_schema
 from . import package_serializer
+from . import settings
 from .auth import Principal
 
 PG_DSN = os.environ["PG_DSN"]
@@ -81,11 +82,9 @@ ALLOWED_UPLOAD_MIME = {"application/pdf", "image/jpeg", "image/png"}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
 ALLOWED_RECORD_TYPES = {"lab_report", "imaging", "checkup", "prescription"}
 
-# 症状包字段 → 中文摘要标签
-_PKG_LABELS = [
-    ("chief_complaint", "主诉"), ("symptoms", "症状"), ("history", "既往史"),
-    ("medications", "用药"), ("family_history", "家族史"),
-]
+# 字段/类型标签 → 外挂 settings/clinical/labels.json（设置最大化）
+_labels = settings.load("clinical/labels.json")
+_PKG_LABELS = [tuple(x) for x in _labels["package_fields"]]
 
 
 def _interview_response(payload: dict, done: bool) -> dict:
@@ -106,9 +105,7 @@ def _package_to_zh(pkg: dict) -> str:
 
 # 在档佐证料聚合：把成员既往报告并入症状包，使评估有全局依据、更权威。
 # 限量 + 每条截断：避免把 meditron 的患者上下文撑回失控量级。
-EVIDENCE_TYPE_LABEL = {
-    "lab_report": "检验报告", "imaging": "影像", "checkup": "体检报告", "prescription": "处方",
-}
+EVIDENCE_TYPE_LABEL = _labels["evidence_types"]
 EVIDENCE_MAX_RECORDS = 6
 EVIDENCE_CHARS_PER_RECORD = 350
 

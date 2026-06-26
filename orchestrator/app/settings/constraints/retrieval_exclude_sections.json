@@ -1,0 +1,8 @@
+{
+  "_doc": "检索时排除的非临床章节（参考文献/致谢/附录等噪声），按库语言分。值会拼成 section 的正则排除。",
+  "international": [
+    "reference", "bibliography", "acknowledg", "abbreviation",
+    "conflict of interest", "appendix", "disclaimer", "publication info"
+  ],
+  "domestic": ["参考文献", "致谢", "缩略语", "利益冲突", "附录", "声明"]
+}
