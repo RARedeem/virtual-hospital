@@ -81,10 +81,20 @@ def parse_and_chunk(pdf_path: str) -> list[Chunk]:
 
     使用 Docling 结构化解析，按真实章节标题切片。
     返回有序 Chunk 列表，每个 chunk 携带其章节标题路径。
-    """
-    from docling.document_converter import DocumentConverter
 
-    converter = DocumentConverter()
+    指南语料均为原生数字 PDF（自带文本层），显式关闭 OCR：
+      1) 无需 OCR——文本层直读即得，更快更准；
+      2) 规避 Docling 默认 OCR 引擎（RapidOCR PP-OCRv6）在当前镜像不受支持而崩溃。
+    扫描件指南若日后出现，再按需引入 OCR 开关。
+    """
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+
+    pipeline_options = PdfPipelineOptions(do_ocr=False)
+    converter = DocumentConverter(
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+    )
     result = converter.convert(pdf_path)
     doc = result.document
 

@@ -315,12 +315,10 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -
     _partial({"report_a_zh": report_a_zh, "sources_a": sources_a,
               "a_model": MODEL_A2_REASONING})                       # A 轨结论流出
 
-    # 流程 B（国际指南 + llama4，路线不动）：客观所见为主检索 + 全包为辅，合并
+    # 流程 B（国际指南 + llama4，路线不动）：症状包一次汉译英(translated_en)后直接检索。
+    # 翻译仅一进一出、只针对症状包——不对客观所见做第二次翻译（删除原 obj_en 重复翻译）。
     _stage("b_retrieve")
-    obj_en = await translate_to_en(objective_zh) if objective_zh else translated_en
-    b_guidelines = _merge_guidelines(
-        await retrieve_guidelines(conn, obj_en),
-        await retrieve_guidelines(conn, translated_en))
+    b_guidelines = await retrieve_guidelines(conn, translated_en)
     _stage("b_reason")
     findings_en = await reason(translated_en, b_guidelines, rule_hits)
     _stage("b_translate")
