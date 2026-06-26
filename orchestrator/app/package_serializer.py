@@ -13,6 +13,8 @@
 from typing import Any
 import re
 
+from . import report_parser
+
 # 方案A 小模型预消化的结论 / 纯前端字段，不喂入推理
 _SKIP_KEYS = {"阳性发现", "建议补充", "department_code"}
 _EMPTY = (None, "", [], {})
@@ -103,20 +105,20 @@ def to_extracted_zh(pkg: dict) -> str:
 
     mats = pkg.get("佐证材料")
     if isinstance(mats, list) and mats:
-        evid = []
+        # 报告文本走 report_parser 校真：内容去重 + 确定性解析（提示加权、测值/尺寸保真），
+        # 不再原样灌 OCR/不经小模型概括。无结构的文本自动回退保留原文。
+        report_texts = [(m.get("识别文本") or "").strip() for m in mats
+                        if isinstance(m, dict) and (m.get("识别文本") or "").strip()]
+        report_zh = report_parser.reports_to_zh(report_texts) if report_texts else ""
+        if report_zh:
+            body.append("【检查报告（医疗机构出具·客观为主）】")
+            body.append(report_zh)
+        # 仅有文件名/备注、无识别文本的附件，仍登记一行
         for m in mats:
-            if not isinstance(m, dict):
-                continue
-            name = (m.get("文件名") or "报告").strip()
-            note = (m.get("备注") or "").strip()
-            txt = (m.get("识别文本") or "").strip()
-            label = name + (f"（{note}）" if note else "")
-            if txt:
-                evid.append(f"· {label}：\n{txt}")
-            elif note:
-                evid.append(f"· {label}")
-        if evid:
-            body.append("【佐证材料（报告原文）】")
-            body.extend(evid)
+            if isinstance(m, dict) and not (m.get("识别文本") or "").strip():
+                name = (m.get("文件名") or "报告").strip()
+                note = (m.get("备注") or "").strip()
+                if name or note:
+                    body.append(f"· 附件：{name}" + (f"（{note}）" if note else ""))
 
     return "\n".join(head + body).strip()
