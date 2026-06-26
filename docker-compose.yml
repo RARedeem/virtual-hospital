@@ -117,6 +117,7 @@ services:
       - DEV_BYPASS_AUTH=${DEV_BYPASS_AUTH:-}
     volumes:
       - ./terminology:/app/terminology:ro   # 中英医学术语对照表
+      - ./config:/config:ro                 # 统一设置（外挂数据集），见 config/；与 ingestion/lab 同源
     depends_on:
       ollama:
         condition: service_healthy
