@@ -1,7 +1,7 @@
 """虚拟医院编排服务 — FastAPI 入口。"""
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 from contextlib import asynccontextmanager
 
 import psycopg
@@ -259,6 +259,45 @@ async def intake_symptom_package(req: IntakeRequest,
             await conn.commit()
     await auth.log_access(principal, "archive_symptom_package", req.member_id)
     return {"archived_record_id": str(rec_id)}
+
+
+# 上传症状包落地目录（docker-compose 挂载 ./symptom-packages，含 PHI 已 gitignore）
+SYMPTOM_PKG_DIR = os.environ.get("SYMPTOM_PKG_DIR", "/symptom-packages")
+
+
+@app.post("/symptom-packages/upload")
+async def upload_symptom_package(req: IntakeRequest,
+                                 principal: Principal = Depends(auth.get_principal)):
+    """上传 JSON 症状包：① 原始文件落地 SYMPTOM_PKG_DIR 留底；② 序列化归档为最新 symptom_package（即默认包）。
+    归档后下拉自动置顶选中、可直接「运行双盲评估」。"""
+    auth.authorize_member_access(principal, req.member_id)
+    pkg = req.package
+    if not isinstance(pkg, dict) or not pkg:
+        raise HTTPException(status_code=400, detail="无效症状包：需为非空 JSON 对象")
+    body = package_serializer.to_extracted_zh(pkg)
+    if not body.strip():
+        raise HTTPException(status_code=400, detail="空症状包或格式不符：无可归档内容")
+    # B：原始 JSON 落地留底（成员+时间戳命名）
+    os.makedirs(SYMPTOM_PKG_DIR, exist_ok=True)
+    fname = f"{req.member_id}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    with open(os.path.join(SYMPTOM_PKG_DIR, fname), "w", encoding="utf-8") as f:
+        json.dump(pkg, f, ensure_ascii=False, indent=2)
+    # A：归档为最新 symptom_package 记录（=默认包）
+    async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO member_data.health_records
+                    (member_id, record_type, source_org, record_date, extracted_zh)
+                VALUES (%s, 'symptom_package', '上传·JSON', %s, %s)
+                RETURNING id
+                """,
+                (req.member_id, date.today(), body),
+            )
+            rec_id = (await cur.fetchone())[0]
+            await conn.commit()
+    await auth.log_access(principal, "upload_symptom_package", req.member_id)
+    return {"archived_record_id": str(rec_id), "raw_file": fname}
 
 
 @app.post("/interview/start")

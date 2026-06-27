@@ -118,6 +118,7 @@ services:
     volumes:
       - ./terminology:/app/terminology:ro   # 中英医学术语对照表
       - ./config:/config:ro                 # 统一设置（外挂数据集），见 config/；与 ingestion/lab 同源
+      - ./symptom-packages:/symptom-packages # 上传症状包原始 JSON 落地（含 PHI，已 gitignore）
     depends_on:
       ollama:
         condition: service_healthy

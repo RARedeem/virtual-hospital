@@ -27,3 +27,5 @@ guidelines/
 interview-lab/uploads/
 # 症状包导出（病人数据，勿入库）
 /symptom-package.json
+# 上传症状包原始 JSON 落地目录（含 PHI，勿入库）
+/symptom-packages/

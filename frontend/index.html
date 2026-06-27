@@ -933,6 +933,29 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
 
   function startInterview() { setView("department"); setError(null); }
 
+  // 上传症状包：浏览 .json → 读取解析 → 落地留底 + 归档为最新(默认)包 → 置顶选中
+  const pkgFileRef = React.useRef(null);
+  async function handleUploadPackage(file) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      let pkg;
+      try { pkg = JSON.parse(text); } catch (_) { throw new Error("不是合法的 JSON 文件"); }
+      const h = await authHeaders();
+      const resp = await fetch(`${API_BASE}/symptom-packages/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...h },
+        body: JSON.stringify({ member_id: member.id, package: pkg }),
+      });
+      if (!resp.ok) { const d = await resp.json().catch(() => ({})); throw new Error(d.detail || `上传失败 ${resp.status}`); }
+      const d = await resp.json();
+      await onRefreshRecords(member.id);
+      setSelPkgId(d.archived_record_id);   // 置顶选中刚上传的（=最新=默认包）
+    } catch (e) {
+      alert(`上传症状包失败：${e.message}`);
+    }
+  }
+
   useEffect(() => {
     setView("department"); setDept(null); setMessages([]); setPending(null); setDone(false);
     setInputText(""); setResult(null); setError(null); setSelPkgId(null);
@@ -1228,11 +1251,20 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
           <h2 className="serif text-2xl" style={{ color: "var(--teal-900)" }}>{member.full_name}</h2>
           <span className="text-sm" style={{ color: "var(--muted)" }}>{member.relation} · {age(member.birth_date)}</span>
         </div>
-        <button onClick={startInterview}
-          className="text-sm px-4 py-1.5 rounded-lg font-medium"
-          style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>
-          + 开始问诊
-        </button>
+        <div className="flex items-center gap-2">
+          <input ref={pkgFileRef} type="file" accept=".json,application/json" className="hidden"
+            onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; handleUploadPackage(f); }} />
+          <button onClick={() => pkgFileRef.current && pkgFileRef.current.click()}
+            className="text-sm px-4 py-1.5 rounded-lg font-medium"
+            style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>
+            ⬆ 上传症状包
+          </button>
+          <button onClick={startInterview}
+            className="text-sm px-4 py-1.5 rounded-lg font-medium"
+            style={{ background: "var(--teal-100)", color: "var(--teal-900)" }}>
+            + 开始问诊
+          </button>
+        </div>
       </div>
       {pkgs.length === 0 ? (
         <div className="rounded-xl border border-dashed p-10 text-center" style={{ borderColor: "var(--line)" }}>
