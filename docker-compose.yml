@@ -115,6 +115,7 @@ services:
       - OIDC_JWKS_URL=${OIDC_JWKS_URL:-http://authentik-server:9000/application/o/virtual-hospital/jwks/}
       - OIDC_AUDIENCE=${OIDC_AUDIENCE:-virtual-hospital}
       - DEV_BYPASS_AUTH=${DEV_BYPASS_AUTH:-}
+      - SKIP_FLOW_A=${SKIP_FLOW_A:-}        # 【测试开关】=1 时跳过流程A2，汉译英后直奔流程B
     volumes:
       - ./terminology:/app/terminology:ro   # 中英医学术语对照表
       - ./config:/config:ro                 # 统一设置（外挂数据集），见 config/；与 ingestion/lab 同源

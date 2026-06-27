@@ -22,11 +22,102 @@ def _render_val(v: Any) -> str:
     return str(v).strip()
 
 
+# ── regedit 树格式（顶层键"症状包"）转换器 ───────────────────────────────
+# 树：{症状包:[{科室:[{<科>:[<名>,{症状描述:[{<症状>:[..属性..]},{检查报告:[{<报告名>:<对象>}...]}]}]}, "<科>"]}]}
+# 摊平为干净中文（与扁平 schema 同风格），临床事实保真；剔除机器抽取噪声字段，避免 repr 垃圾撑爆 embed。
+_RPT_NOISE = {"关键指标", "关键键值", "重点关注", "内容摘要", "标题", "诊断相关",
+              "症状体征", "用药信息", "处理建议", "检查部位", "文档类型", "机构", "页数", "检查号", "住院号"}
+_BULLET_DROP = ("患者信息", "检查项目")              # 补充要点里与标题/档案重复的行
+_CONCL_DROP = ("检查结论", "检查项目", "患者信息", "经腹部扫查", "CDI")  # 结论里剔除回显摘要句
+
+
+def _tree_scalar(v: Any) -> str:
+    if isinstance(v, list):
+        return "、".join(_tree_scalar(x) for x in v if _tree_scalar(x))
+    if isinstance(v, dict):
+        return ""
+    return str(v).strip()
+
+
+def _render_report(name: str, obj: Any, out: list) -> None:
+    info = obj.get("检查信息", {}) if isinstance(obj, dict) else {}
+    proj = _tree_scalar(info.get("项目", "")).split("检查日期")[0].strip() or name
+    diag = _tree_scalar(info.get("临床诊断", ""))
+    out.append(f"  〔{proj}〕" + (f"  临床诊断：{diag}" if diag else ""))
+    seen = obj.get("检查所见", {}) if isinstance(obj, dict) else {}
+    for k, v in (seen.items() if isinstance(seen, dict) else []):
+        if isinstance(v, str) and v.strip() and k not in _RPT_NOISE:
+            out.append(f"    {k}：{v.strip()}")
+    pts = seen.get("补充要点") if isinstance(seen, dict) else None
+    if isinstance(pts, list):
+        for p in pts:
+            if isinstance(p, str) and p.strip() and not p.strip().startswith(_BULLET_DROP):
+                out.append(f"    · {p.strip()}")
+    concl = obj.get("超声结论") if isinstance(obj, dict) else None
+    if isinstance(concl, list):
+        cs = [c.strip() for c in concl if isinstance(c, str) and c.strip()]
+        cs = [c for c in dict.fromkeys(cs) if len(c) <= 30 and not c.startswith(_CONCL_DROP)]
+        if cs:
+            out.append("    结论：" + "；".join(cs))
+
+
+def _tree_to_zh(pkg: dict) -> str:
+    """regedit 树格式（顶层键'症状包'）→ 干净结构化中文。"""
+    sb = pkg.get("症状包")
+    if isinstance(sb, list) and sb:
+        sb = sb[0]
+    keshi = sb.get("科室") if isinstance(sb, dict) else None
+    depts, detail = [], None
+    for e in (keshi or []):
+        if isinstance(e, str):
+            depts.append(e)
+        elif isinstance(e, dict):
+            for dn, dv in e.items():
+                depts.append(dn)
+                detail = detail or dv
+    out = []
+    if depts:
+        out.append("【科室】" + "、".join(dict.fromkeys(depts)))
+    symptoms, reports = [], []
+    for item in (detail or []):
+        if not isinstance(item, dict):
+            continue
+        for k, v in item.items():
+            if k != "症状描述":
+                continue
+            for s in (v or []):
+                if not isinstance(s, dict):
+                    continue
+                for sn, sv in s.items():
+                    if sn == "检查报告":
+                        for r in (sv or []):
+                            if isinstance(r, dict):
+                                for rn, ro in r.items():
+                                    reports.append((rn, ro))
+                    else:
+                        attrs = []
+                        for a in (sv or []):
+                            if isinstance(a, dict):
+                                for ak, av in a.items():
+                                    attrs.append(f"{ak}：{_tree_scalar(av)}")
+                        symptoms.append(sn + (f"（{'；'.join(attrs)}）" if attrs else ""))
+    if symptoms:
+        out.append("【症状】")
+        out.extend(f"  {s}" for s in symptoms)
+    if reports:
+        out.append("【检查报告（医疗机构出具·客观为主）】")
+        for rn, ro in reports:
+            _render_report(rn, ro, out)
+    return "\n".join(out).strip()
+
+
 def to_extracted_zh(pkg: dict) -> str:
     """结构化症状包 dict → 中文文本。空值/结论字段跳过；佐证识别文本作为关键客观证据保留；
     可疑客观发现原文摘录置于主诉之后高亮。"""
     if not isinstance(pkg, dict):
         return str(pkg or "").strip()
+    if "症状包" in pkg:                       # regedit 树格式 → 专用转换器，避免 repr 垃圾
+        return _tree_to_zh(pkg)
 
     head: list[str] = []
     if pkg.get("科室"):

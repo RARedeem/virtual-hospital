@@ -45,6 +45,8 @@ MODEL_STRUCTURE = _model("MODEL_STRUCTURE", "structure")
 # 检索/推理可调项 → 外挂 settings/tunables.json（top_k/截断/推理参数）
 _TUN = settings.load("tunables.json")
 RETRIEVE_TOP_K = _TUN["retrieve_top_k"]
+RETRIEVE_QUERY_MAX_CHARS = _TUN.get("retrieve_query_max_chars", 2000)  # embed 输入长度护栏，防超长 query 把 embed 打 500
+_SKIP_FLOW_A = os.environ.get("SKIP_FLOW_A", "").lower() in ("1", "true", "yes")  # 【测试开关】跳过流程A2，汉译英后直奔流程B
 CONTEXT_CHUNK_CHARS = _TUN["context_chunk_chars"]
 REASONING_OPTIONS = _TUN["reasoning_options"]
 _RP = settings.load("prompts/reasoning.json")   # 循证推理 prompt（B/A2）外挂
@@ -70,7 +72,7 @@ async def translate_to_en(zh_text: str) -> str:
 
 async def retrieve_guidelines(conn, query_en: str, top_k: int = RETRIEVE_TOP_K) -> list[dict]:
     """步骤 2：向量检索相关国际指南片段（仅未废弃来源）。"""
-    query_vec = await oc.embed(MODEL_EMBED, query_en)
+    query_vec = await oc.embed(MODEL_EMBED, (query_en or "")[:RETRIEVE_QUERY_MAX_CHARS])
     rows = await conn.fetch(
         f"""
         SELECT c.chunk_text, c.section, s.citation_id, s.org
@@ -174,7 +176,7 @@ async def retrieve_domestic_guidelines(conn, query_zh: str,
                                        top_k: int = RETRIEVE_TOP_K) -> list[dict]:
     """流程 A2 检索：bge-m3 向量化中文 query → 检索国内指南片段（domestic_kb，仅未废弃来源）。
     约束 A 例外：bge-m3 仅在此（流程 A 国内指南检索）使用。"""
-    query_vec = await oc.embed(MODEL_EMBED_CN, query_zh)
+    query_vec = await oc.embed(MODEL_EMBED_CN, (query_zh or "")[:RETRIEVE_QUERY_MAX_CHARS])
     rows = await conn.fetch(
         f"""
         SELECT c.chunk_text, c.section, s.citation_id, s.org
@@ -304,16 +306,22 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -
     # 检查报告为主、主诉为辅：客观检查所见单独作【主】检索 query（否则被主诉症状淹没）
     objective_zh = _extract_objective(zh_patient_data)
 
-    # 流程 A2（国内指南）：客观所见为主检索 + 全包(含主诉)为辅，合并
-    _stage("a2_retrieve")
-    a_guidelines = _merge_guidelines(
-        await retrieve_domestic_guidelines(conn, objective_zh or zh_patient_data),
-        await retrieve_domestic_guidelines(conn, zh_patient_data))
-    _stage("a2_reason")
-    report_a_zh = await reason_a2(zh_patient_data, a_guidelines)
-    sources_a = [g["citation_id"] for g in a_guidelines]
-    _partial({"report_a_zh": report_a_zh, "sources_a": sources_a,
-              "a_model": MODEL_A2_REASONING})                       # A 轨结论流出
+    # 流程 A2（国内指南）：客观所见为主检索 + 全包(含主诉)为辅，合并。
+    # 【测试开关 SKIP_FLOW_A】打开时：汉译英后越过国内指南检索与流程A，直奔流程B。
+    if _SKIP_FLOW_A:
+        report_a_zh, sources_a = "（测试模式 SKIP_FLOW_A：已跳过流程A·国内指南检索与推理）", []
+        _partial({"report_a_zh": report_a_zh, "sources_a": sources_a,
+                  "a_model": MODEL_A2_REASONING})
+    else:
+        _stage("a2_retrieve")
+        a_guidelines = _merge_guidelines(
+            await retrieve_domestic_guidelines(conn, objective_zh or zh_patient_data),
+            await retrieve_domestic_guidelines(conn, zh_patient_data))
+        _stage("a2_reason")
+        report_a_zh = await reason_a2(zh_patient_data, a_guidelines)
+        sources_a = [g["citation_id"] for g in a_guidelines]
+        _partial({"report_a_zh": report_a_zh, "sources_a": sources_a,
+                  "a_model": MODEL_A2_REASONING})                   # A 轨结论流出
 
     # 流程 B（国际指南 + llama4，路线不动）：症状包一次汉译英(translated_en)后直接检索。
     # 翻译仅一进一出、只针对症状包——不对客观所见做第二次翻译（删除原 obj_en 重复翻译）。

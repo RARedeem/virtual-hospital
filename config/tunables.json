@@ -1,6 +1,7 @@
 {
   "_doc": "可调项（设置最大化）。检索/推理/OCR/上传/佐证 各阈值，代码只读不写死。",
   "retrieve_top_k": 3,
+  "retrieve_query_max_chars": 2000,
   "context_chunk_chars": 250,
   "reasoning_options": {"temperature": 0.0, "num_predict": 1024},
   "ocr": {"max_pdf_pages": 12, "pdf_dpi": 200, "num_predict": 1536, "stop": ["```"]},
