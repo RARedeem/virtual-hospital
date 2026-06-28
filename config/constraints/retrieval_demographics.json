@@ -1,0 +1,5 @@
+{
+  "_doc": "人口学分层检索过滤（设置最大化）：按患者年龄排除年龄不适配的指南源——成人病例不检索儿科指南。根因：儿科指南满篇『超声所见/无回声』影像描述语言，是 embedding 强吸附体，会把成人对症指南(如 EAU RCC)挤出 top-k（见记忆 retrieval-pediatric-attractor）。此为按年龄分层的通用临床硬规则，非为单病例反向调 query（不违 no-overfit-retrieval）。源匹配为 citation_id ILIKE 模式（% 通配，大小写不敏感）。年龄 >= adult_age_threshold 视为成人；年龄未知则不排除(fail-open)。代码只读不写死。",
+  "adult_age_threshold": 18,
+  "exclude_for_adults": ["%paediatric%", "%pediatric%", "%儿科%", "%小儿%"]
+}

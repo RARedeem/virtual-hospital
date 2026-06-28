@@ -100,10 +100,10 @@ services:
       #     定制 gemma4(简体调校、守纪律)更可靠——单句对照看着等价，真管道里才露馅。
       #   keep_alive 仍 0：多大模型无法共驻，守显存纪律防累积 OOM；B 批处理延迟可容忍。
       #   依据见记忆 reasoner-meditron-vs-llama / rigid-pipeline-route。
-      - MODEL_TRANSLATE=translator-zh-en
-      - MODEL_TRANSLATE_BACK=translator-en-zh
+      - MODEL_TRANSLATE=${MODEL_TRANSLATE:-llama4:16x17b}        # 定案：流程B 汉译英由 llama4 担当（=推理同模型, keep_alive 驻留, 整条B轨只冷加载一次）
+      - MODEL_TRANSLATE_BACK=${MODEL_TRANSLATE_BACK:-llama4:16x17b}   # 定案：流程B 英译汉同由 llama4 担当（复用驻留模型, 零重载）
       - MODEL_REASONING=llama4:16x17b
-      - MODEL_EMBED=nomic-embed-text:v1.5
+      - MODEL_EMBED=snowflake-arctic-embed2
       # 流程 A2（双盲另一轨）：约束 A 例外——bge-m3(北京智源)仅限流程 A 国内指南检索（见 ARCHITECTURE §2）。
       #   A1 问诊(交互) 与 A2 推理 均 llama3.3:70b。
       - MODEL_A2_REASONING=llama3.3:70b
@@ -116,6 +116,7 @@ services:
       - OIDC_AUDIENCE=${OIDC_AUDIENCE:-virtual-hospital}
       - DEV_BYPASS_AUTH=${DEV_BYPASS_AUTH:-}
       - SKIP_FLOW_A=${SKIP_FLOW_A:-}        # 【测试开关】=1 时跳过流程A2，汉译英后直奔流程B
+      - SKIP_RULES=${SKIP_RULES:-}          # 【测试开关】=1 时跳过"抽取指标+规则引擎"（B 不消费 rule_hits，省一次 extractor 调用）
     volumes:
       - ./terminology:/app/terminology:ro   # 中英医学术语对照表
       - ./config:/config:ro                 # 统一设置（外挂数据集），见 config/；与 ingestion/lab 同源
@@ -143,7 +144,7 @@ services:
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - PG_DSN=postgresql://${PG_USER:-yangrenming}:${PG_PASSWORD}@postgres:5432/${PG_DB:-virtual_hospital}
-      - MODEL_EMBED=nomic-embed-text:v1.5
+      - MODEL_EMBED=snowflake-arctic-embed2
       - MODEL_EMBED_CN=bge-m3        # 国内指南 scope=domestic 用（约束 A 例外，仅流程 A）
       - HF_ENDPOINT=https://hf-mirror.com
       # 代理隔离：ollama/postgres 内部调用直连；hf-mirror 等外网不在表内，仍按需直连(dns 已配)

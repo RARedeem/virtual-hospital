@@ -24,6 +24,18 @@ _EXCL_CN = "|".join(_EXCL["domestic"])
 
 _MODELS = settings.load("models.json")
 
+# 人口学分层检索：按患者年龄排除年龄不适配的指南源（成人不检索儿科指南）→ 外挂 settings
+_DEMO = settings.load("constraints/retrieval_demographics.json")
+
+
+def _age_excluded_citations(patient_age) -> list[str]:
+    """按年龄返回应排除的指南源 citation_id ILIKE 模式。年龄未知 → 空列表（fail-open，不排除）。"""
+    if patient_age is None:
+        return []
+    if patient_age >= _DEMO.get("adult_age_threshold", 18):
+        return list(_DEMO.get("exclude_for_adults", []))
+    return []
+
 
 def _model(env_key: str, settings_key: str) -> str:
     """模型分配以 settings 为准；同名 env 可覆盖（部署灵活）。"""
@@ -33,12 +45,23 @@ def _model(env_key: str, settings_key: str) -> str:
 MODEL_TRANSLATE = _model("MODEL_TRANSLATE", "translate_zh_en")
 MODEL_TRANSLATE_BACK = _model("MODEL_TRANSLATE_BACK", "translate_en_zh")
 MODEL_REASONING = _model("MODEL_REASONING", "reasoning_b")
+
+# 同模型连用优化：若汉译英与推理是同一模型（如都 llama4），翻译时令其驻留(keep_alive)，
+# 避免"译→检索→推理"序列把同一巨模型冷加载两遍。keep_alive=0 全局纪律仅适于"不同模型串行"，
+# 同模型连用时它反成纯浪费。不同模型（gemma 译 + llama4 推）→ None，回退全局 0、守显存纪律。
+_TRANSLATE_KEEPALIVE = 300 if MODEL_TRANSLATE == MODEL_REASONING else None
+# 推理后若英译汉同为该模型(如都 llama4)，令推理驻留到译回，省掉"切回翻译器"的模型加载。
+_REASON_KEEPALIVE = 300 if MODEL_REASONING == MODEL_TRANSLATE_BACK else None
 MODEL_EMBED = _model("MODEL_EMBED", "embed_international")
 
 # ── 流程 A2（双盲另一轨）：llama 中文原生推理 + 国内指南 ──
 # 约束 A 例外：bge-m3（北京智源）仅用于流程 A 国内指南检索，严禁进入翻译/流程 B 任何环节。
 # 边界见 ARCHITECTURE §2 / db/init/04_domestic_kb.sql。
 MODEL_A2_REASONING = _model("MODEL_A2_REASONING", "reasoning_a2")
+# 流程A 同模型连用优化：抽取指标若与 A2 推理同模型（默认都 llama3.3），抽取时令其驻留(keep_alive)，
+# 横跨中间的 bge-m3 检索（MAX_LOADED_MODELS=2，二者并存），推理时零重载 → A 轨 llama3.3 只冷加载一次。
+# 不同模型时 → None，回退全局 keep_alive=0。成本按冷加载次数算账，非显存。
+_EXTRACT_KEEPALIVE = 300 if extractor.MODEL_EXTRACT == MODEL_A2_REASONING else None
 MODEL_EMBED_CN = _model("MODEL_EMBED_CN", "embed_domestic")
 MODEL_STRUCTURE = _model("MODEL_STRUCTURE", "structure")
 
@@ -47,9 +70,11 @@ _TUN = settings.load("tunables.json")
 RETRIEVE_TOP_K = _TUN["retrieve_top_k"]
 RETRIEVE_QUERY_MAX_CHARS = _TUN.get("retrieve_query_max_chars", 2000)  # embed 输入长度护栏，防超长 query 把 embed 打 500
 _SKIP_FLOW_A = os.environ.get("SKIP_FLOW_A", "").lower() in ("1", "true", "yes")  # 【测试开关】跳过流程A2，汉译英后直奔流程B
+_SKIP_RULES = os.environ.get("SKIP_RULES", "").lower() in ("1", "true", "yes")    # 【测试开关】跳过"抽取指标+规则引擎"（B 推理本就不消费 rule_hits，纯省一次 extractor 调用）
 CONTEXT_CHUNK_CHARS = _TUN["context_chunk_chars"]
 REASONING_OPTIONS = _TUN["reasoning_options"]
 _RP = settings.load("prompts/reasoning.json")   # 循证推理 prompt（B/A2）外挂
+_TP = settings.load("prompts/translate.json")   # 翻译 prompt（强约束 system，llama4 担当翻译用）外挂
 
 # 中英医学术语对照表，作为翻译提示补充
 _TERMS_PATH = Path("/app/terminology/medical_terms.json")
@@ -65,13 +90,16 @@ def _terminology_hint() -> str:
 
 
 async def translate_to_en(zh_text: str) -> str:
-    """步骤 1：汉译英，注入术语表。用定制 gemma4 翻译器原本调校的简洁 prompt。"""
-    prompt = f"{_terminology_hint()}\nTranslate to English:\n{zh_text}"
-    return await oc.generate(MODEL_TRANSLATE, prompt)
+    """步骤 1：汉译英，注入术语表。强约束 system（外挂 translate.json），逼通用模型只吐英文译文、零废话。"""
+    system = _TP["zh_en_system"].replace("{terms}", _terminology_hint())
+    return await oc.generate(MODEL_TRANSLATE, zh_text, system=system,
+                             keep_alive=_TRANSLATE_KEEPALIVE, options=_TP.get("options"))
 
 
-async def retrieve_guidelines(conn, query_en: str, top_k: int = RETRIEVE_TOP_K) -> list[dict]:
-    """步骤 2：向量检索相关国际指南片段（仅未废弃来源）。"""
+async def retrieve_guidelines(conn, query_en: str, top_k: int = RETRIEVE_TOP_K,
+                              exclude_citations: list[str] | None = None) -> list[dict]:
+    """步骤 2：向量检索相关国际指南片段（仅未废弃来源）。
+    exclude_citations：人口学分层排除的源 ILIKE 模式（如成人排除 %paediatric%）；空/None 不排除。"""
     query_vec = await oc.embed(MODEL_EMBED, (query_en or "")[:RETRIEVE_QUERY_MAX_CHARS])
     rows = await conn.fetch(
         f"""
@@ -80,10 +108,11 @@ async def retrieve_guidelines(conn, query_en: str, top_k: int = RETRIEVE_TOP_K) 
         JOIN knowledge_base.guideline_sources s ON c.source_id = s.id
         WHERE s.is_deprecated = false
           AND c.section !~* '({_EXCL_EN})'
+          AND s.citation_id NOT ILIKE ALL($3::text[])
         ORDER BY c.embedding <=> $1::vector
         LIMIT $2
         """,
-        str(query_vec), top_k,
+        str(query_vec), top_k, exclude_citations or [],
     )
     return [dict(r) for r in rows]
 
@@ -124,12 +153,15 @@ async def reason(patient_en: str, guidelines: list[dict],
         *p["fewshot"],
         {"role": "user", "content": p["user_template"].format(evidence=evidence_str, patient=patient_en)},
     ]
-    return await oc.chat(MODEL_REASONING, messages, options=REASONING_OPTIONS)
+    return await oc.chat(MODEL_REASONING, messages, options=REASONING_OPTIONS,
+                         keep_alive=_REASON_KEEPALIVE)
 
 
 async def translate_to_zh(en_report: str) -> str:
-    """步骤 4：英译汉输出。用定制 gemma4 翻译器原本调校的简洁 prompt（简体、守纪律）。"""
-    return await oc.generate(MODEL_TRANSLATE_BACK, f"Translate to Chinese:\n{en_report}")
+    """步骤 4：英译汉输出。强约束 system（外挂 translate.json），逼通用模型只吐简体中文译文、零前言/多版本。
+    复用 B 推理驻留的 llama4（已 resident），本步不再续驻 → 用完即释放（守显存纪律）。"""
+    return await oc.generate(MODEL_TRANSLATE_BACK, en_report, system=_TP["en_zh_system"],
+                             options=_TP.get("options"))
 
 
 async def run_pipeline(conn, zh_patient_data: str) -> dict:
@@ -173,9 +205,11 @@ async def run_pipeline(conn, zh_patient_data: str) -> dict:
 # ════════════════════════════════════════════════════════
 
 async def retrieve_domestic_guidelines(conn, query_zh: str,
-                                       top_k: int = RETRIEVE_TOP_K) -> list[dict]:
+                                       top_k: int = RETRIEVE_TOP_K,
+                                       exclude_citations: list[str] | None = None) -> list[dict]:
     """流程 A2 检索：bge-m3 向量化中文 query → 检索国内指南片段（domestic_kb，仅未废弃来源）。
-    约束 A 例外：bge-m3 仅在此（流程 A 国内指南检索）使用。"""
+    约束 A 例外：bge-m3 仅在此（流程 A 国内指南检索）使用。
+    exclude_citations：人口学分层排除的源 ILIKE 模式（成人排除儿科）；空/None 不排除。"""
     query_vec = await oc.embed(MODEL_EMBED_CN, (query_zh or "")[:RETRIEVE_QUERY_MAX_CHARS])
     rows = await conn.fetch(
         f"""
@@ -184,10 +218,11 @@ async def retrieve_domestic_guidelines(conn, query_zh: str,
         JOIN domestic_kb.guideline_sources_cn s ON c.source_id = s.id
         WHERE s.is_deprecated = false
           AND c.section !~* '({_EXCL_CN})'
+          AND s.citation_id NOT ILIKE ALL($3::text[])
         ORDER BY c.embedding <=> $1::vector
         LIMIT $2
         """,
-        str(query_vec), top_k,
+        str(query_vec), top_k, exclude_citations or [],
     )
     return [dict(r) for r in rows]
 
@@ -244,8 +279,61 @@ async def structure_symptom_package(zh_blob: str) -> str:
 _OBJECTIVE_HEADERS = tuple(settings.load("clinical/objective_headers.json")["headers"])
 
 
+def _try_parse_tree(zh: str):
+    """把症状包文本解析成树（dict/list）。容错：前置【基本信息】等非 JSON 行 → 取首个 { 到末个 } 的 JSON 体。"""
+    try:
+        return json.loads(zh)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    if zh and "{" in zh and "}" in zh:
+        try:
+            return json.loads(zh[zh.index("{"): zh.rindex("}") + 1])
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return None
+
+
+def _render_subtree(node, out: list) -> None:
+    """把一棵子树递归渲染成可读文本（供客观 query），保留键名与层级语义。"""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if isinstance(v, (dict, list)):
+                out.append(f"{k}：")
+                _render_subtree(v, out)
+            else:
+                out.append(f"{k}：{v}")
+    elif isinstance(node, list):
+        for x in node:
+            _render_subtree(x, out)
+    elif str(node).strip():
+        out.append(str(node).strip())
+
+
+def _collect_objective_subtrees(node, out: list) -> None:
+    """遍历包树：命中配置客观键名 → 整棵子树渲染入 out（不再深入，避免重复）；否则继续下钻。"""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if any(h in str(k) for h in _OBJECTIVE_HEADERS):
+                _render_subtree(v, out)
+            else:
+                _collect_objective_subtrees(v, out)
+    elif isinstance(node, list):
+        for x in node:
+            _collect_objective_subtrees(x, out)
+
+
 def _extract_objective(zh: str) -> str:
-    """抽取症状包里医疗机构报告/客观检查所见（专科所见 + 佐证报告原文 + 可疑发现），剔除主诉/症状。"""
+    """抽取症状包客观检查所见（剔除主诉/症状），作聚焦检索 query。
+    树/JSON 包 → 按 objective_headers 键名【遍历包树】摘取客观子树（树原生，符合树结构设计意图）；
+    扁平【】序列化文本 → 回退正则。A/B 两条支树干各自独立调用本机制（B 不蹭 A 的索引）。"""
+    tree = _try_parse_tree(zh)
+    if tree is not None:
+        out: list = []
+        _collect_objective_subtrees(tree, out)
+        tree_obj = "\n".join(out).strip()
+        if tree_obj:
+            return tree_obj
+    # 回退：扁平【】序列化文本
     blocks = []
     for m in re.finditer(r"【([^】]+)】\n?(.*?)(?=\n【|\Z)", zh or "", re.S):
         head, body = m.group(1), m.group(2).strip()
@@ -265,18 +353,23 @@ def _merge_guidelines(main: list[dict], extra: list[dict], cap: int = 6) -> list
     return out[:cap]
 
 
-async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -> dict:
+async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None,
+                   patient_age=None) -> dict:
     """
     背靠背双盲评估（ARCHITECTURE §3）。同一份 A1 症状数据，A2 与 B 各自独立推理。
 
-    双盲保证：A2 与 B 都【只】消费 zh_patient_data（A1 症状 + 在档佐证），
-    互不传入对方的结论。确定性规则作为两轨共享的既定事实层，单算一次。
+    双盲保证：A2 与 B 都【只】消费 zh_patient_data（A1 症状 + 在档佐证），互不传入对方的结论。
+
+    两条轨各自独立、互不借步：
+      流程A（全中文自洽）：抽取指标+规则引擎(中文,llama3.3) → bge-m3 检索国内指南 → llama3.3 推理。
+        规则引擎为流程A 的确定性独立轨（A/B 推理均不消费 rule_hits），单算一次。
+      流程B（翻译三明治, llama4 包办）：汉译英(llama4) → snowflake 检索国际指南 → llama4 推理 → 英译汉(llama4)。
 
     on_stage(key)：可选回调，进入每个阶段时调用，供前端展示实时进度
     （key 见 progress_router.ASSESS_STAGES）。
 
-    显存：依赖 OLLAMA_KEEP_ALIVE=0（ARCHITECTURE §6.1）自动串行换载。
-    流程 B 路线（gemma4→nomic检索→llama4→gemma4）原样不动，仅与 A2 并排编排。
+    显存：依赖 OLLAMA_KEEP_ALIVE=0 + MAX_LOADED_MODELS=2（ARCHITECTURE §6.1）。
+    成本按冷加载次数算账：A 轨 llama3.3 keep_alive 横跨 bge-m3 只冷加载一次；B 轨 llama4 同理只一次。
     """
     def _stage(k):
         if on_stage:
@@ -290,24 +383,32 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -
 
     # 症状包已是 json 结构化（方案A 序列化产出），不再做 structure 预处理——直接消费。
     # 对已结构化的包再让 llama3.3 重整既慢又可能扭曲，故移除该阶段。
-    _stage("translate_en")
-    translated_en = await translate_to_en(zh_patient_data)   # 一次汉译英：供 B 检索/推理 + 规则抽取
-    _stage("rules")
-    metrics = await extractor.extract_metrics(translated_en)
-    active_rules = await fetch_active_rules(conn)
-    rule_hits = rules_engine.evaluate_rules(metrics, active_rules)
-    rule_hits_dicts = [
-        {"metric": h.metric, "value": h.value, "conclusion": h.conclusion,
-         "citation_id": h.citation_id, "severity": h.severity}
-        for h in rule_hits
-    ]
-    _partial({"rule_hits": rule_hits_dicts, "metrics": metrics})   # 规则先出
+    #
+    # ── 流程 A（全中文自洽，无翻译）：抽取指标+规则引擎 → bge-m3 检索 → llama3.3 推理 ──
+    # 抽取指标 + 规则引擎（确定性独立轨，属流程A）：直接吃【中文】症状包，与 B 的英文译文彻底解耦。
+    # B/A2 推理均【不】消费 rule_hits（reason() 死参数），故 SKIP_RULES 打开时整步跳过。
+    # 抽取复用 llama3.3 并 keep_alive 驻留 → 横跨下方 bge-m3（MAX_LOADED=2 并存）、A2 推理时零重载。
+    if _SKIP_RULES:
+        metrics, rule_hits, rule_hits_dicts = {}, [], []
+    else:
+        _stage("rules")
+        metrics = await extractor.extract_metrics(zh_patient_data, keep_alive=_EXTRACT_KEEPALIVE)
+        active_rules = await fetch_active_rules(conn)
+        rule_hits = rules_engine.evaluate_rules(metrics, active_rules)
+        rule_hits_dicts = [
+            {"metric": h.metric, "value": h.value, "conclusion": h.conclusion,
+             "citation_id": h.citation_id, "severity": h.severity}
+            for h in rule_hits
+        ]
+        _partial({"rule_hits": rule_hits_dicts, "metrics": metrics})   # 规则先出
 
     # 检查报告为主、主诉为辅：客观检查所见单独作【主】检索 query（否则被主诉症状淹没）
     objective_zh = _extract_objective(zh_patient_data)
+    # 人口学分层：成人病例排除儿科指南（防其影像描述语言吸附、挤出成人对症指南）。两轨同源对称。
+    excl = _age_excluded_citations(patient_age)
 
     # 流程 A2（国内指南）：客观所见为主检索 + 全包(含主诉)为辅，合并。
-    # 【测试开关 SKIP_FLOW_A】打开时：汉译英后越过国内指南检索与流程A，直奔流程B。
+    # 【测试开关 SKIP_FLOW_A】打开时：跳过流程A 国内指南检索与推理，直奔流程B（B 自带汉译英）。
     if _SKIP_FLOW_A:
         report_a_zh, sources_a = "（测试模式 SKIP_FLOW_A：已跳过流程A·国内指南检索与推理）", []
         _partial({"report_a_zh": report_a_zh, "sources_a": sources_a,
@@ -315,18 +416,26 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -
     else:
         _stage("a2_retrieve")
         a_guidelines = _merge_guidelines(
-            await retrieve_domestic_guidelines(conn, objective_zh or zh_patient_data),
-            await retrieve_domestic_guidelines(conn, zh_patient_data))
+            await retrieve_domestic_guidelines(conn, objective_zh or zh_patient_data, exclude_citations=excl),
+            await retrieve_domestic_guidelines(conn, zh_patient_data, exclude_citations=excl))
         _stage("a2_reason")
         report_a_zh = await reason_a2(zh_patient_data, a_guidelines)
         sources_a = [g["citation_id"] for g in a_guidelines]
         _partial({"report_a_zh": report_a_zh, "sources_a": sources_a,
                   "a_model": MODEL_A2_REASONING})                   # A 轨结论流出
 
-    # 流程 B（国际指南 + llama4，路线不动）：症状包一次汉译英(translated_en)后直接检索。
-    # 翻译仅一进一出、只针对症状包——不对客观所见做第二次翻译（删除原 obj_en 重复翻译）。
+    # ── 流程 B（翻译三明治，llama4 包办译·检·推·译回）：B 支树干【独立】绑紧客观检索机制 ──
+    # 译=llama4(=推理同模型)+keep_alive 驻留，横跨 snowflake 检索（MAX_LOADED=2 并存）→ llama4 只冷加载一次。
+    # 严谨优先（用户授权破例二次翻译，宁牺牲时间）：B 自己再翻一次【客观子树】作聚焦 query——
+    # 不蹭 A 的索引(bge-m3/国内)，B 独立 客观所见→llama4译→snowflake→国际库。客观为主检索 + 整包为辅，合并。
+    # 推理仍吃整包 translated_en 保上下文。
+    _stage("translate_en")
+    translated_en = await translate_to_en(zh_patient_data)            # 整包：供 B 推理 + 无客观所见时回退
+    objective_en = await translate_to_en(objective_zh) if objective_zh else ""  # B 独立客观子树翻译（聚焦 query）
     _stage("b_retrieve")
-    b_guidelines = await retrieve_guidelines(conn, translated_en)
+    b_guidelines = _merge_guidelines(
+        await retrieve_guidelines(conn, objective_en or translated_en, exclude_citations=excl),
+        await retrieve_guidelines(conn, translated_en, exclude_citations=excl))
     _stage("b_reason")
     findings_en = await reason(translated_en, b_guidelines, rule_hits)
     _stage("b_translate")
@@ -338,7 +447,7 @@ async def run_dual(conn, zh_patient_data: str, on_stage=None, on_partial=None) -
     return {
         "translated_en": translated_en,
         "extracted_metrics": metrics,
-        "rule_hits": rule_hits_dicts,        # 两轨共享的确定性既定事实层
+        "rule_hits": rule_hits_dicts,        # 流程A 确定性既定事实层（独立轨，A/B 推理均不消费）
         "report_a_zh": report_a_zh,          # 流程 A（国内指南·llama）
         "sources_a": sources_a,
         "report_b_zh": report_b_zh,          # 流程 B（国际指南·meditron）

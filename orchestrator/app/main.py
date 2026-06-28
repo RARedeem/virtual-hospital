@@ -1,6 +1,7 @@
 """虚拟医院编排服务 — FastAPI 入口。"""
 import json
 import os
+import re
 from datetime import date, datetime
 from contextlib import asynccontextmanager
 
@@ -17,6 +18,7 @@ from . import ocr
 from . import progress_router as progress_router_mod
 from . import intake_schema
 from . import package_serializer
+from . import package_denoise
 from . import settings
 from .auth import Principal
 
@@ -274,15 +276,16 @@ async def upload_symptom_package(req: IntakeRequest,
     pkg = req.package
     if not isinstance(pkg, dict) or not pkg:
         raise HTTPException(status_code=400, detail="无效症状包：需为非空 JSON 对象")
-    body = package_serializer.to_extracted_zh(pkg)
-    if not body.strip():
-        raise HTTPException(status_code=400, detail="空症状包或格式不符：无可归档内容")
-    # B：原始 JSON 落地留底（成员+时间戳命名）
+    # 确定性去噪：按 config/clinical/denoise_keys.json 规则剥离纯机器抽取噪声键（无 LLM、可复现、
+    # 不让推理模型自评自剪）。JSON 格式化到底——产物仍是 JSON 树，仅去字段、保层级、保全临床内容。
+    slimmed, denoise_audit = package_denoise.denoise(pkg)
+    body = json.dumps(slimmed, ensure_ascii=False, indent=2)
+    # B：去噪【前】的原始完整 JSON 落地留底（成员+时间戳命名），供审计/回溯
     os.makedirs(SYMPTOM_PKG_DIR, exist_ok=True)
     fname = f"{req.member_id}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
     with open(os.path.join(SYMPTOM_PKG_DIR, fname), "w", encoding="utf-8") as f:
         json.dump(pkg, f, ensure_ascii=False, indent=2)
-    # A：归档为最新 symptom_package 记录（=默认包）
+    # A：归档去噪后的 JSON 为最新 symptom_package 记录（=默认包）
     async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
         async with conn.cursor() as cur:
             await cur.execute(
@@ -297,6 +300,37 @@ async def upload_symptom_package(req: IntakeRequest,
             rec_id = (await cur.fetchone())[0]
             await conn.commit()
     await auth.log_access(principal, "upload_symptom_package", req.member_id)
+    return {"archived_record_id": str(rec_id), "raw_file": fname, "denoise": denoise_audit}
+
+
+@app.post("/symptom-packages/upload-raw")
+async def upload_symptom_package_raw(req: IntakeRequest,
+                                     principal: Principal = Depends(auth.get_principal)):
+    """原始直送：JSON 症状包【零加工】——不去噪、不转换、不渲染，原样归档为最新 symptom_package，
+    直接进入症状包下拉。供主应用「上传症状包」按钮用（与编辑器「提交为症状包」的去噪路径分离）。"""
+    auth.authorize_member_access(principal, req.member_id)
+    pkg = req.package
+    if not isinstance(pkg, dict) or not pkg:
+        raise HTTPException(status_code=400, detail="无效症状包：需为非空 JSON 对象")
+    body = json.dumps(pkg, ensure_ascii=False, indent=2)   # 原始 JSON，原样
+    os.makedirs(SYMPTOM_PKG_DIR, exist_ok=True)
+    fname = f"{req.member_id}_{datetime.now().strftime('%Y%m%d-%H%M%S')}_raw.json"
+    with open(os.path.join(SYMPTOM_PKG_DIR, fname), "w", encoding="utf-8") as f:
+        json.dump(pkg, f, ensure_ascii=False, indent=2)
+    async with await psycopg.AsyncConnection.connect(PG_DSN) as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO member_data.health_records
+                    (member_id, record_type, source_org, record_date, extracted_zh)
+                VALUES (%s, 'symptom_package', '上传·原始JSON', %s, %s)
+                RETURNING id
+                """,
+                (req.member_id, date.today(), body),
+            )
+            rec_id = (await cur.fetchone())[0]
+            await conn.commit()
+    await auth.log_access(principal, "upload_symptom_package_raw", req.member_id)
     return {"archived_record_id": str(rec_id), "raw_file": fname}
 
 
@@ -465,10 +499,14 @@ async def assess(req: AssessRequest,
                     "SELECT birth_date, sex FROM member_data.members WHERE id = %s",
                     (req.member_id,))
                 _m = await cur.fetchone()
+            patient_age = None
             if _m:
                 _demo = _demographics_line(_m[0], _m[1])
                 if _demo and "【基本信息】" not in patient_zh:
                     patient_zh = _demo + "\n" + patient_zh
+                if _m[0]:   # birth_date → 年龄（人口学分层检索：成人排除儿科指南）
+                    _t = date.today()
+                    patient_age = _t.year - _m[0].year - ((_t.month, _t.day) < (_m[0].month, _m[0].day))
 
             # psycopg3 fetch 封装（简化版，生产可换 asyncpg）
             # 评估阶段进度：run_dual 每进一阶段回调写进度，前端轮询 GET /progress/assess 展示
@@ -476,7 +514,8 @@ async def assess(req: AssessRequest,
             result = await pipeline.run_dual(
                 _ConnAdapter(conn), patient_zh,
                 on_stage=progress_router_mod.assess_mark,
-                on_partial=progress_router_mod.assess_partial)
+                on_partial=progress_router_mod.assess_partial,
+                patient_age=patient_age)
             progress_router_mod.assess_done()
             async with conn.cursor() as cur:
                 await cur.execute(
@@ -516,9 +555,12 @@ class _ConnAdapter:
         self._conn = conn
 
     async def fetch(self, sql, *params):
-        sql = sql.replace("$1", "%s").replace("$2", "%s")
+        # asyncpg 风格 $N（可乱序/重复）→ psycopg %s（按文本出现顺序定位）：解析 $N 并据其重排实参。
+        order: list[int] = []
+        new_sql = re.sub(r"\$(\d+)", lambda m: (order.append(int(m.group(1)) - 1), "%s")[1], sql)
+        reordered = [params[i] for i in order]
         async with self._conn.cursor() as cur:
-            await cur.execute(sql, params)
+            await cur.execute(new_sql, reordered)
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in await cur.fetchall()]
 

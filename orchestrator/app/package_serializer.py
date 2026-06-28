@@ -22,92 +22,36 @@ def _render_val(v: Any) -> str:
     return str(v).strip()
 
 
-# ── regedit 树格式（顶层键"症状包"）转换器 ───────────────────────────────
-# 树：{症状包:[{科室:[{<科>:[<名>,{症状描述:[{<症状>:[..属性..]},{检查报告:[{<报告名>:<对象>}...]}]}]}, "<科>"]}]}
-# 摊平为干净中文（与扁平 schema 同风格），临床事实保真；剔除机器抽取噪声字段，避免 repr 垃圾撑爆 embed。
-_RPT_NOISE = {"关键指标", "关键键值", "重点关注", "内容摘要", "标题", "诊断相关",
-              "症状体征", "用药信息", "处理建议", "检查部位", "文档类型", "机构", "页数", "检查号", "住院号"}
-_BULLET_DROP = ("患者信息", "检查项目")              # 补充要点里与标题/档案重复的行
-_CONCL_DROP = ("检查结论", "检查项目", "患者信息", "经腹部扫查", "CDI")  # 结论里剔除回显摘要句
-
-
-def _tree_scalar(v: Any) -> str:
-    if isinstance(v, list):
-        return "、".join(_tree_scalar(x) for x in v if _tree_scalar(x))
-    if isinstance(v, dict):
-        return ""
-    return str(v).strip()
-
-
-def _render_report(name: str, obj: Any, out: list) -> None:
-    info = obj.get("检查信息", {}) if isinstance(obj, dict) else {}
-    proj = _tree_scalar(info.get("项目", "")).split("检查日期")[0].strip() or name
-    diag = _tree_scalar(info.get("临床诊断", ""))
-    out.append(f"  〔{proj}〕" + (f"  临床诊断：{diag}" if diag else ""))
-    seen = obj.get("检查所见", {}) if isinstance(obj, dict) else {}
-    for k, v in (seen.items() if isinstance(seen, dict) else []):
-        if isinstance(v, str) and v.strip() and k not in _RPT_NOISE:
-            out.append(f"    {k}：{v.strip()}")
-    pts = seen.get("补充要点") if isinstance(seen, dict) else None
-    if isinstance(pts, list):
-        for p in pts:
-            if isinstance(p, str) and p.strip() and not p.strip().startswith(_BULLET_DROP):
-                out.append(f"    · {p.strip()}")
-    concl = obj.get("超声结论") if isinstance(obj, dict) else None
-    if isinstance(concl, list):
-        cs = [c.strip() for c in concl if isinstance(c, str) and c.strip()]
-        cs = [c for c in dict.fromkeys(cs) if len(c) <= 30 and not c.startswith(_CONCL_DROP)]
-        if cs:
-            out.append("    结论：" + "；".join(cs))
+# ── regedit 树格式（顶层键"症状包"）→ 无损全量渲染（止血版） ─────────────────────
+# 铁律：医疗数据管道的转换默认【无损·忠实】。本渲染器递归遍历整棵树，保全每个键、每个值、
+# 每一层级，【绝不】剔除任何字段（含 关键指标/重点关注/患者信息 等结构化测值与评分）。
+# 只把 JSON 结构规范成可读缩进文本；相关性由下游推理器判，序列化器不替它做主。
+# 设计取舍：宁可冗长，绝不静默丢临床数据。（后续忠实版再优化临床可读性，但仍须无损。）
+def _tree_render(node: Any, depth: int, out: list) -> None:
+    pad = "  " * depth
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if v is None or v == "":          # 仅跳过空值（无内容，非数据丢失）
+                continue
+            if isinstance(v, (dict, list)):
+                out.append(f"{pad}{k}：")
+                _tree_render(v, depth + 1, out)
+            else:
+                out.append(f"{pad}{k}：{v}")
+    elif isinstance(node, list):
+        for x in node:
+            if isinstance(x, (dict, list)):
+                _tree_render(x, depth, out)
+            elif str(x).strip():
+                out.append(f"{pad}- {str(x).strip()}")
+    elif str(node).strip():
+        out.append(f"{pad}{str(node).strip()}")
 
 
 def _tree_to_zh(pkg: dict) -> str:
-    """regedit 树格式（顶层键'症状包'）→ 干净结构化中文。"""
-    sb = pkg.get("症状包")
-    if isinstance(sb, list) and sb:
-        sb = sb[0]
-    keshi = sb.get("科室") if isinstance(sb, dict) else None
-    depts, detail = [], None
-    for e in (keshi or []):
-        if isinstance(e, str):
-            depts.append(e)
-        elif isinstance(e, dict):
-            for dn, dv in e.items():
-                depts.append(dn)
-                detail = detail or dv
-    out = []
-    if depts:
-        out.append("【科室】" + "、".join(dict.fromkeys(depts)))
-    symptoms, reports = [], []
-    for item in (detail or []):
-        if not isinstance(item, dict):
-            continue
-        for k, v in item.items():
-            if k != "症状描述":
-                continue
-            for s in (v or []):
-                if not isinstance(s, dict):
-                    continue
-                for sn, sv in s.items():
-                    if sn == "检查报告":
-                        for r in (sv or []):
-                            if isinstance(r, dict):
-                                for rn, ro in r.items():
-                                    reports.append((rn, ro))
-                    else:
-                        attrs = []
-                        for a in (sv or []):
-                            if isinstance(a, dict):
-                                for ak, av in a.items():
-                                    attrs.append(f"{ak}：{_tree_scalar(av)}")
-                        symptoms.append(sn + (f"（{'；'.join(attrs)}）" if attrs else ""))
-    if symptoms:
-        out.append("【症状】")
-        out.extend(f"  {s}" for s in symptoms)
-    if reports:
-        out.append("【检查报告（医疗机构出具·客观为主）】")
-        for rn, ro in reports:
-            _render_report(rn, ro, out)
+    """regedit 树格式（顶层键'症状包'）→ 无损全量中文文本。保全所有字段/层级，不静默丢任何临床数据。"""
+    out: list = []
+    _tree_render(pkg, 0, out)
     return "\n".join(out).strip()
 
 

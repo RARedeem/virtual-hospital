@@ -66,15 +66,15 @@ def health():
 # ════════════════════════════════════════════════════════
 ASSESS_FILE = os.environ.get("ASSESS_PROGRESS_FILE", "/tmp/vh_assess_progress.json")
 
-# 阶段按 pipeline.run_dual 实际执行顺序排列
+# 阶段按 pipeline.run_dual 实际执行顺序排列（流程A 全中文自洽在前，流程B 翻译三明治在后）
 ASSESS_STAGES = [
-    ("translate_en", "汉译英 · gemma4"),
-    ("rules",        "抽取指标 + 规则引擎"),
-    ("a2_retrieve",  "检索国内指南 · bge-m3"),
-    ("a2_reason",    "流程 A 国内循证推理 · llama3.3"),
-    ("b_retrieve",   "检索国际指南 · nomic"),
-    ("b_reason",     "流程 B 国际循证推理 · llama4（最耗时）"),
-    ("b_translate",  "英译汉 · gemma4"),
+    ("rules",        "抽取指标 + 规则引擎 · llama3.3（两轨共享确定性层）"),
+    ("a2_retrieve",  "流程 A · 检索国内指南 · bge-m3"),
+    ("a2_reason",    "流程 A · 国内循证推理 · llama3.3"),
+    ("translate_en", "流程 B · 汉译英 · llama4"),
+    ("b_retrieve",   "流程 B · 检索国际指南 · arctic-embed2"),
+    ("b_reason",     "流程 B · 国际循证推理 · llama4（最耗时）"),
+    ("b_translate",  "流程 B · 英译汉 · llama4"),
 ]
 
 
