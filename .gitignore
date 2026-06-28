@@ -29,3 +29,5 @@ interview-lab/uploads/
 /symptom-package.json
 # 上传症状包原始 JSON 落地目录（含 PHI，勿入库）
 /symptom-packages/
+# regedit 编辑器导出的症状包快照（含 PHI，勿入库）
+/registry-json-*.json
