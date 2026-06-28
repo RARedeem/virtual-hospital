@@ -7,7 +7,10 @@ PDF 结构化解析与章节切片。
 from dataclasses import dataclass, field
 
 # 单 chunk 字符上限。超过则在段落边界二次切分。
-# nomic-embed-text native context = 2048 tokens; ~3.5 chars/token → 7000 chars safe ceiling.
+# ⚠ 切片尺寸与 embedding 模型的上下文窗口【强耦合】——换 embedder 必须复核此处：
+#   原 nomic-embed-text ctx≈2048 token → 7000 字符 ceiling；现 snowflake-arctic-embed2
+#   ctx=8192 token，远超 7000 字符 ceiling，现有切片安全容纳，无需重切。
+#   （反例：mxbai-embed-large ctx 仅 512 token，会令长 chunk embed 失败，故不可用。）
 MAX_CHUNK_CHARS = 1800
 # 二次切分时相邻 chunk 的重叠字符数，保留上下文连续性。
 OVERLAP_CHARS = 200

@@ -3,9 +3,9 @@
   "international": {
     "sources_table": "knowledge_base.guideline_sources",
     "chunks_table": "knowledge_base.guideline_chunks",
-    "embed_model": "nomic-embed-text:v1.5",
+    "embed_model": "snowflake-arctic-embed2",
     "embed_env": "MODEL_EMBED",
-    "embed_dim": 768,
+    "embed_dim": 1024,
     "validate_prc": true
   },
   "domestic": {

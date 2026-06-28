@@ -94,7 +94,7 @@ CREATE TABLE knowledge_base.guideline_chunks (
     source_id   UUID REFERENCES knowledge_base.guideline_sources(id) ON DELETE CASCADE,
     chunk_text  TEXT NOT NULL,         -- 英文指南片段
     section     TEXT,                  -- 所属章节
-    embedding   vector(768),           -- nomic-embed-text v1.5 维度
+    embedding   vector(1024),          -- snowflake-arctic-embed2 维度（2026-06-28 由 nomic 768 升级；8192 上下文容下现有切片）
     created_at  TIMESTAMPTZ DEFAULT now()
 );
 
