@@ -1,0 +1,1815 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RegEdit-Style JSON Editor</title>
+  <style>
+    :root {
+      --bg: #d4d0c8;
+      --panel: #efefef;
+      --border-dark: #808080;
+      --border-light: #ffffff;
+      --text: #111111;
+      --accent: #0a246a;
+      --accent-text: #ffffff;
+      --muted: #666666;
+      --header: #c0c0c0;
+      --row-hover: #e4e9f7;
+      --btn-bg: #e0e0e0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Tahoma", "Segoe UI", sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #f4f4f4, #c8c8c8 60%, #b0b0b0);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .window {
+      width: min(1300px, 96vw);
+      margin: 16px auto;
+      background: var(--bg);
+      border: 2px solid var(--border-dark);
+      box-shadow: 0 0 0 1px var(--border-light) inset;
+      display: flex;
+      flex-direction: column;
+      min-height: 88vh;
+    }
+
+    .titlebar {
+      padding: 6px 10px;
+      background: linear-gradient(90deg, #0a246a, #2f5bb7);
+      color: #fff;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      user-select: none;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px;
+      border-top: 1px solid var(--border-light);
+      border-bottom: 1px solid var(--border-dark);
+      background: var(--header);
+      align-items: center;
+    }
+
+    button {
+      border: 1px solid var(--border-dark);
+      border-top-color: var(--border-light);
+      border-left-color: var(--border-light);
+      background: var(--btn-bg);
+      color: var(--text);
+      padding: 5px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      min-height: 28px;
+    }
+
+    button:hover {
+      filter: brightness(1.04);
+    }
+
+    button:active {
+      border-top-color: var(--border-dark);
+      border-left-color: var(--border-dark);
+      border-bottom-color: var(--border-light);
+      border-right-color: var(--border-light);
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 330px 1fr;
+      gap: 0;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .panel {
+      border-right: 1px solid var(--border-dark);
+      background: var(--panel);
+      overflow: auto;
+    }
+
+    .panel:last-child {
+      border-right: 0;
+    }
+
+    .panel-header {
+      padding: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      background: #e6e6e6;
+      border-bottom: 1px solid var(--border-dark);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tree {
+      list-style: none;
+      margin: 0;
+      padding: 6px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .tree-tools {
+      padding: 6px;
+      border-bottom: 1px solid #c8c8c8;
+      background: #efefef;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .tree-tools input {
+      width: 100%;
+      padding: 4px 6px;
+      font-size: 12px;
+      border: 1px solid #b8b8b8;
+      background: #fff;
+    }
+
+    .tree-tools button {
+      min-height: 24px;
+      padding: 2px 8px;
+      font-size: 12px;
+    }
+
+    .tree ul {
+      list-style: none;
+      margin: 0;
+      padding-left: 16px;
+      border-left: 1px dotted #9a9a9a;
+    }
+
+    .tree-node {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 1px 3px;
+      border: 1px solid transparent;
+      user-select: none;
+      cursor: pointer;
+      width: fit-content;
+      min-width: 120px;
+    }
+
+    .tree-node:hover {
+      background: #f5f6fa;
+      border-color: #c6c8d4;
+    }
+
+    .tree-node.selected {
+      background: var(--accent);
+      color: var(--accent-text);
+      border-color: #04245f;
+    }
+
+    .expander {
+      width: 14px;
+      display: inline-block;
+      text-align: center;
+      font-weight: 700;
+      color: #3a3a3a;
+    }
+
+    .tree-node.selected .expander {
+      color: #dce7ff;
+    }
+
+    .table-wrap {
+      padding: 0;
+      overflow: auto;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      table-layout: fixed;
+      font-size: 13px;
+      background: #ffffff;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #d8d8d8;
+      border-right: 1px solid #ececec;
+      text-align: left;
+      padding: 6px 8px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    th {
+      background: #f1f1f1;
+      border-bottom: 1px solid #bcbcbc;
+      font-weight: 700;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tbody tr:hover {
+      background: var(--row-hover);
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .actions button {
+      padding: 3px 8px;
+      min-height: 24px;
+      font-size: 12px;
+    }
+
+    .status {
+      border-top: 1px solid var(--border-dark);
+      background: #ececec;
+      padding: 5px 8px;
+      font-size: 12px;
+      color: #2a2a2a;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .kbd {
+      font-family: Consolas, monospace;
+      background: #fff;
+      border: 1px solid #bbb;
+      padding: 0 4px;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 16px;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal {
+      width: min(980px, 96vw);
+      max-height: 90vh;
+      overflow: hidden;
+      background: #f5f5f5;
+      border: 2px solid var(--border-dark);
+      box-shadow: 0 0 0 1px var(--border-light) inset, 0 12px 36px rgba(0, 0, 0, 0.35);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-header {
+      padding: 8px 10px;
+      background: linear-gradient(90deg, #0a246a, #2f5bb7);
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .modal-body {
+      padding: 10px;
+      display: grid;
+      gap: 10px;
+      overflow: auto;
+    }
+
+    .modal-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .modal-panel {
+      background: #fff;
+      border: 1px solid #c8c8c8;
+      display: flex;
+      flex-direction: column;
+      min-height: 320px;
+    }
+
+    .modal-panel h3 {
+      margin: 0;
+      padding: 8px 10px;
+      background: #ececec;
+      border-bottom: 1px solid #c8c8c8;
+      font-size: 13px;
+    }
+
+    .modal-panel pre {
+      margin: 0;
+      padding: 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.45;
+      overflow: auto;
+      flex: 1;
+    }
+
+    .modal-panel textarea {
+      width: 100%;
+      border: 0;
+      resize: none;
+      outline: none;
+      padding: 10px;
+      font: inherit;
+      line-height: 1.45;
+      flex: 1;
+      min-height: 260px;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 10px;
+      border-top: 1px solid #c8c8c8;
+      background: #ececec;
+    }
+
+    .modal-meta {
+      font-size: 12px;
+      color: #333;
+      background: #fff;
+      border: 1px solid #c8c8c8;
+      padding: 8px 10px;
+      line-height: 1.5;
+    }
+
+    .modal-meta strong {
+      display: inline-block;
+      min-width: 84px;
+    }
+
+    .modal-error-box {
+      margin: 0;
+      padding: 10px;
+      background: #fff;
+      border: 1px solid #c8c8c8;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.45;
+      max-height: 42vh;
+      overflow: auto;
+    }
+
+    @media (max-width: 900px) {
+      .split {
+        grid-template-columns: 1fr;
+      }
+
+      .modal-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        border-right: 0;
+        border-bottom: 1px solid var(--border-dark);
+      }
+
+      .panel:last-child {
+        border-bottom: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">JSON Registry Editor</div>
+
+    <div class="toolbar">
+      <button id="btnNew">新建</button>
+      <button id="btnImport">导入 JSON</button>
+      <button id="btnExport">导出 JSON</button>
+      <select id="memberSelect" title="直送目标成员"
+        style="height:28px;border:1px solid #8aa;border-radius:3px;margin-left:6px;padding:0 6px;"></select>
+      <button id="btnSubmitApp" title="把当前树直送主应用，归档为该成员最新（默认）症状包">提交为症状包 ▸</button>
+      <button id="btnPasteJson">粘贴 JSON 到当前键</button>
+      <button id="btnFormatJson">格式化当前节点</button>
+      <button id="btnMedicalView">医学视图: 关</button>
+      <button id="btnAttachPdf">附加 PDF 文件</button>
+      <button id="btnExpandAll">全部展开</button>
+      <button id="btnCollapseAll">全部收起</button>
+      <button id="btnAddValue">新增值</button>
+      <button id="btnAddKey">新增子键</button>
+      <button id="btnRenameKey">重命名当前键</button>
+      <button id="btnDeleteKey">删除当前键</button>
+      <input id="fileInput" type="file" accept="application/json,.json" style="display:none" />
+      <input id="pdfInput" type="file" accept="application/pdf,.pdf" style="display:none" />
+    </div>
+
+    <div class="split">
+      <section class="panel">
+        <div id="currentPath" class="panel-header">Computer\\JSON_ROOT</div>
+        <div class="tree-tools">
+          <input id="treeSearch" type="text" placeholder="筛选节点(键名/内容)" />
+          <button id="btnTreeSearchClear">清空</button>
+        </div>
+        <ul id="tree" class="tree"></ul>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">Name | Type | Data</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 26%;">Name</th>
+                <th style="width: 18%;">Type</th>
+                <th>Data</th>
+                <th style="width: 220px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="valueTable"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="status">
+      <div id="statusText">就绪</div>
+      <div>快捷: <span class="kbd">Ctrl+S</span> 导出</div>
+    </div>
+  </div>
+
+  <div id="pdfPreviewBackdrop" class="modal-backdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pdfPreviewTitle">
+      <div class="modal-header" id="pdfPreviewTitle">PDF 附加预览</div>
+      <div class="modal-body">
+        <div id="pdfPreviewMeta" class="modal-meta"></div>
+          <div class="modal-meta">
+            <strong>入驻模式</strong>
+            <label style="margin-right: 12px;"><input type="radio" name="pdfAttachMode" value="single" checked /> 整份入驻</label>
+            <label><input type="radio" name="pdfAttachMode" value="split" /> 按页拆分入驻</label>
+          </div>
+        <div class="modal-grid">
+          <section class="modal-panel">
+            <h3>OCR 预览（可编辑）</h3>
+            <textarea id="pdfPreviewOcr"></textarea>
+          </section>
+          <section class="modal-panel">
+            <h3>结构化 JSON 预览（可编辑）</h3>
+            <textarea id="pdfPreviewJson"></textarea>
+          </section>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="pdfPreviewCancel">取消</button>
+        <button id="pdfPreviewConfirm">确认入驻</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pdfErrorBackdrop" class="modal-backdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pdfErrorTitle" style="max-width: 760px;">
+      <div class="modal-header" id="pdfErrorTitle">PDF 附加失败</div>
+      <div class="modal-body">
+        <div class="modal-meta">
+          <div><strong>说明</strong>后端已返回错误信息，可直接重试。</div>
+        </div>
+        <pre id="pdfErrorDetail" class="modal-error-box"></pre>
+      </div>
+      <div class="modal-footer">
+        <button id="pdfErrorClose">关闭</button>
+        <button id="pdfErrorRetry">重试</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pasteJsonBackdrop" class="modal-backdrop" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pasteJsonTitle" style="max-width: 900px;">
+      <div class="modal-header" id="pasteJsonTitle">粘贴 JSON 到当前键</div>
+      <div class="modal-body">
+        <div class="modal-meta">
+          <div><strong>目标路径</strong><span id="pasteJsonTarget">Computer\\JSON_ROOT</span></div>
+          <div><strong>说明</strong>应用后将覆盖当前选中键；若当前是根键，则覆盖整个文档。</div>
+        </div>
+        <section class="modal-panel" style="min-height: 420px;">
+          <h3>JSON 输入</h3>
+          <textarea id="pasteJsonInput" placeholder="在此粘贴完整 JSON"></textarea>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <button id="pasteJsonCancel">取消</button>
+        <button id="pasteJsonApply">应用</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let data = {
+      app: {
+        name: "virtual-hospital",
+        version: "1.0.0",
+        flags: {
+          demo: true,
+          logging: false
+        }
+      },
+      services: [
+        { name: "orchestrator", port: 8000 },
+        { name: "ingestion", port: 8010 }
+      ]
+    };
+
+    let selectedPath = [];
+    const expanded = new Set(["/"]);
+
+    const treeEl = document.getElementById("tree");
+    const valueTableEl = document.getElementById("valueTable");
+    const currentPathEl = document.getElementById("currentPath");
+    const statusEl = document.getElementById("statusText");
+    const treeSearchEl = document.getElementById("treeSearch");
+    const btnTreeSearchClear = document.getElementById("btnTreeSearchClear");
+
+    const fileInput = document.getElementById("fileInput");
+    const pdfInput = document.getElementById("pdfInput");
+
+    const btnNew = document.getElementById("btnNew");
+    const btnImport = document.getElementById("btnImport");
+    const btnExport = document.getElementById("btnExport");
+    const btnPasteJson = document.getElementById("btnPasteJson");
+    const btnFormatJson = document.getElementById("btnFormatJson");
+    const btnMedicalView = document.getElementById("btnMedicalView");
+    const btnAttachPdf = document.getElementById("btnAttachPdf");
+    const btnExpandAll = document.getElementById("btnExpandAll");
+    const btnCollapseAll = document.getElementById("btnCollapseAll");
+    const btnAddValue = document.getElementById("btnAddValue");
+    const btnAddKey = document.getElementById("btnAddKey");
+    const btnRenameKey = document.getElementById("btnRenameKey");
+    const btnDeleteKey = document.getElementById("btnDeleteKey");
+
+    const pdfPreviewBackdrop = document.getElementById("pdfPreviewBackdrop");
+    const pdfPreviewMeta = document.getElementById("pdfPreviewMeta");
+    const pdfPreviewOcr = document.getElementById("pdfPreviewOcr");
+    const pdfPreviewJson = document.getElementById("pdfPreviewJson");
+    const pdfPreviewCancel = document.getElementById("pdfPreviewCancel");
+    const pdfPreviewConfirm = document.getElementById("pdfPreviewConfirm");
+
+    const pdfErrorBackdrop = document.getElementById("pdfErrorBackdrop");
+    const pdfErrorDetail = document.getElementById("pdfErrorDetail");
+    const pdfErrorClose = document.getElementById("pdfErrorClose");
+    const pdfErrorRetry = document.getElementById("pdfErrorRetry");
+
+    const pasteJsonBackdrop = document.getElementById("pasteJsonBackdrop");
+    const pasteJsonTarget = document.getElementById("pasteJsonTarget");
+    const pasteJsonInput = document.getElementById("pasteJsonInput");
+    const pasteJsonCancel = document.getElementById("pasteJsonCancel");
+    const pasteJsonApply = document.getElementById("pasteJsonApply");
+
+    let pendingPdfAttach = null;
+    let lastFailedPdfRequest = null;
+    let medicalView = false;
+    let treeSearchKeyword = "";
+    let searchVisiblePaths = null;
+
+    const TREE_ARRAY_MAX_CHILDREN = 40;
+
+    function pathToKey(path) {
+      if (!path.length) return "/";
+      return "/" + path.map(String).join("/");
+    }
+
+    function regPath(path) {
+      if (!path.length) return "Computer\\JSON_ROOT";
+      return "Computer\\JSON_ROOT\\" + path.map(String).join("\\");
+    }
+
+    function getNode(path) {
+      let node = data;
+      for (const seg of path) {
+        node = node[seg];
+      }
+      return node;
+    }
+
+    function getParent(path) {
+      if (!path.length) return null;
+      return getNode(path.slice(0, -1));
+    }
+
+    function isContainer(value) {
+      return value !== null && typeof value === "object";
+    }
+
+    function typeOfValue(value) {
+      if (value === null) return "REG_NONE";
+      if (Array.isArray(value)) return "REG_MULTI_SZ";
+      if (typeof value === "string") return "REG_SZ";
+      if (typeof value === "number") return Number.isInteger(value) ? "REG_DWORD" : "REG_QWORD";
+      if (typeof value === "boolean") return "REG_DWORD";
+      if (typeof value === "object") return "REG_KEY";
+      return "REG_BINARY";
+    }
+
+    function preview(value) {
+      if (typeof value === "string") return value;
+      if (typeof value === "number" || typeof value === "boolean" || value === null) return String(value);
+      const text = JSON.stringify(value);
+      return text.length > 120 ? text.slice(0, 117) + "..." : text;
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function parseValueInput(raw, defaultToString = true) {
+      try {
+        return JSON.parse(raw);
+      } catch (err) {
+        if (defaultToString) return raw;
+        throw err;
+      }
+    }
+
+    function formatJsonText(raw) {
+      const parsed = JSON.parse(raw);
+      return JSON.stringify(parsed, null, 2);
+    }
+
+    function getParentPathAndKey(path) {
+      if (!path.length) return { parent: null, key: null };
+      return { parent: getNode(path.slice(0, -1)), key: path[path.length - 1] };
+    }
+
+    function formatCurrentNode() {
+      try {
+        if (!selectedPath.length) {
+          data = JSON.parse(JSON.stringify(data, null, 2));
+          setStatus("已格式化根节点");
+          render();
+          return;
+        }
+
+        const node = getNode(selectedPath);
+        const formatted = JSON.parse(JSON.stringify(node, null, 2));
+        const { parent, key } = getParentPathAndKey(selectedPath);
+        if (parent === null) return;
+        parent[key] = formatted;
+        setStatus("已格式化当前节点");
+        render();
+      } catch (err) {
+        alert("当前节点无法格式化: " + err.message);
+      }
+    }
+
+    function splitPdfTextByPages(text) {
+      const lines = String(text || "").split(/\r?\n/);
+      const pages = [];
+      let current = null;
+
+      for (const line of lines) {
+        const match = line.match(/^【第(\d+)页】\s*$/);
+        if (match) {
+          if (current) pages.push(current);
+          current = { page: Number(match[1]), text: [] };
+          continue;
+        }
+        if (!current) {
+          current = { page: 1, text: [] };
+        }
+        current.text.push(line);
+      }
+
+      if (current) pages.push(current);
+      return pages
+        .map((page) => ({
+          page: page.page,
+          text: page.text.join("\n").trim()
+        }))
+        .filter((page) => page.text);
+    }
+
+    function selectedPdfAttachMode() {
+      const checked = document.querySelector('input[name="pdfAttachMode"]:checked');
+      return checked ? checked.value : "single";
+    }
+
+    function containerSizeHint(value) {
+      if (Array.isArray(value)) return ` [${value.length}]`;
+      if (value && typeof value === "object") return ` {${Object.keys(value).length}}`;
+      return "";
+    }
+
+    function shortText(text, max = 28) {
+      const t = String(text || "").replace(/\s+/g, " ").trim();
+      if (t.length <= max) return t;
+      return t.slice(0, max - 1) + "…";
+    }
+
+    function arrayChildLabel(index, value) {
+      if (Array.isArray(value)) {
+        return `[${index}]` + containerSizeHint(value);
+      }
+      if (value && typeof value === "object") {
+        if (typeof value.name === "string" && (value.value !== undefined || value.unit !== undefined)) {
+          return shortText(`${value.name}:${value.value ?? ""}${value.unit ?? ""}`);
+        }
+        const keys = Object.keys(value);
+        if (keys.length === 1) {
+          const k = keys[0];
+          const v = value[k];
+          if (!isContainer(v)) return shortText(`${k}:${preview(v)}`);
+          return `${k}${containerSizeHint(v)}`;
+        }
+        return `[${index}]` + containerSizeHint(value);
+      }
+      return `[${index}] ${shortText(preview(value), 20)}`;
+    }
+
+    function searchHit(text) {
+      if (!treeSearchKeyword) return true;
+      return String(text || "").toLowerCase().includes(treeSearchKeyword);
+    }
+
+    function buildSearchVisiblePaths() {
+      if (!treeSearchKeyword) return null;
+      const visible = new Set();
+
+      function walk(path, label, node) {
+        const selfHit = searchHit(label) || searchHit(preview(node));
+        let descendantHit = false;
+        if (isContainer(node)) {
+          const children = getTreeChildren(node, true);
+          for (const child of children) {
+            if (child.pseudo) continue;
+            const childPath = [...path, ...child.pathSuffix];
+            if (walk(childPath, child.label, child.value)) {
+              descendantHit = true;
+            }
+          }
+        }
+
+        if (selfHit || descendantHit) {
+          visible.add(pathToKey(path));
+          return true;
+        }
+        return false;
+      }
+
+      walk([], "JSON_ROOT", data);
+      visible.add("/");
+      return visible;
+    }
+
+    function getVisibleEntries(node) {
+      if (!node || typeof node !== "object" || Array.isArray(node)) return [];
+
+      const entries = Object.entries(node);
+      if (!medicalView) return entries;
+
+      const noisy = new Set(["meta", "entities", "key_values", "measurements", "sections", "pages", "raw_ai", "ocr"]);
+      const preferred = ["document", "medical_useful", "priority_findings", "insights"];
+      const hasStructuredMedical = (
+        Object.prototype.hasOwnProperty.call(node, "medical_useful") ||
+        Object.prototype.hasOwnProperty.call(node, "priority_findings")
+      );
+
+      if (hasStructuredMedical) {
+        const out = [];
+        for (const key of preferred) {
+          if (Object.prototype.hasOwnProperty.call(node, key)) out.push([key, node[key]]);
+        }
+        for (const [k, v] of entries) {
+          if (preferred.includes(k) || noisy.has(k)) continue;
+          out.push([k, v]);
+        }
+        return out.length ? out : entries;
+      }
+
+      const filtered = entries.filter(([k]) => !noisy.has(k));
+      return filtered.length ? filtered : entries;
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = String(reader.result || "");
+          const comma = result.indexOf(",");
+          resolve(comma >= 0 ? result.slice(comma + 1) : result);
+        };
+        reader.onerror = () => reject(reader.error || new Error("文件读取失败"));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function sanitizeKeyName(name, fallback = "pdf") {
+      const cleaned = String(name || "")
+        .replace(/\.pdf$/i, "")
+        .replace(/[\\/:*?"<>|]/g, "_")
+        .trim();
+      return cleaned || fallback;
+    }
+
+    function openPdfPreview(payload) {
+      pendingPdfAttach = payload;
+      pdfPreviewMeta.innerHTML = `
+        <div><strong>文件名</strong>${escapeHtml(payload.fileName)}</div>
+        <div><strong>目标键</strong>${escapeHtml(payload.keyName)}</div>
+        <div><strong>识别状态</strong>${escapeHtml(payload.ocrStatus || "ok")}</div>
+        <div><strong>模型</strong>${escapeHtml(payload.model || "gemma4:e4b")}</div>
+      `;
+      pdfPreviewOcr.value = payload.ocrText || "";
+      pdfPreviewJson.value = JSON.stringify(payload.jsonValue || {}, null, 2);
+      pdfPreviewBackdrop.classList.add("open");
+      pdfPreviewBackdrop.setAttribute("aria-hidden", "false");
+      pdfPreviewJson.focus();
+    }
+
+    function closePdfPreview() {
+      pendingPdfAttach = null;
+      pdfPreviewBackdrop.classList.remove("open");
+      pdfPreviewBackdrop.setAttribute("aria-hidden", "true");
+    }
+
+    function openPdfError(detail) {
+      pdfErrorDetail.textContent = detail || "未知错误";
+      pdfErrorBackdrop.classList.add("open");
+      pdfErrorBackdrop.setAttribute("aria-hidden", "false");
+    }
+
+    function closePdfError() {
+      pdfErrorBackdrop.classList.remove("open");
+      pdfErrorBackdrop.setAttribute("aria-hidden", "true");
+    }
+
+    function openPasteJsonModal() {
+      pasteJsonTarget.textContent = regPath(selectedPath);
+      try {
+        pasteJsonInput.value = JSON.stringify(getNode(selectedPath), null, 2);
+      } catch (err) {
+        pasteJsonInput.value = "{}";
+      }
+      pasteJsonBackdrop.classList.add("open");
+      pasteJsonBackdrop.setAttribute("aria-hidden", "false");
+      pasteJsonInput.focus();
+      pasteJsonInput.select();
+    }
+
+    function closePasteJsonModal() {
+      pasteJsonBackdrop.classList.remove("open");
+      pasteJsonBackdrop.setAttribute("aria-hidden", "true");
+    }
+
+    function applyPastedJsonToCurrent() {
+      let parsed;
+      try {
+        parsed = JSON.parse(pasteJsonInput.value || "{}");
+      } catch (err) {
+        alert("JSON 格式错误: " + err.message);
+        return;
+      }
+
+      if (!selectedPath.length) {
+        data = parsed;
+        selectedPath = isContainer(parsed) ? [] : [];
+      } else {
+        const { parent, key } = getParentPathAndKey(selectedPath);
+        if (parent === null) {
+          data = parsed;
+          selectedPath = isContainer(parsed) ? [] : [];
+        } else {
+          parent[key] = parsed;
+        }
+      }
+
+      setStatus("已粘贴并覆盖当前键");
+      closePasteJsonModal();
+      render();
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function finalizePdfAttach(payload) {
+      const targetPath = Array.isArray(payload.targetPath) ? payload.targetPath : selectedPath;
+      const node = getNode(targetPath);
+      let childValue;
+      try {
+        childValue = JSON.parse(pdfPreviewJson.value || "{}");
+      } catch (err) {
+        alert("预览中的 JSON 不是合法 JSON，请先修正后再入驻。\n" + err.message);
+        return false;
+      }
+
+      if (Array.isArray(node)) {
+        node.push({ [payload.keyName]: childValue });
+        selectedPath = [...targetPath, node.length - 1, payload.keyName];
+      } else if (Object.prototype.hasOwnProperty.call(node, payload.keyName)) {
+        const next = prompt("同名子键已存在，请输入新名称", payload.keyName + "_pdf");
+        if (!next) return false;
+        if (Object.prototype.hasOwnProperty.call(node, next)) {
+          alert("新名称仍然已存在，操作已取消");
+          return false;
+        }
+        node[next] = childValue;
+        selectedPath = [...targetPath, next];
+      } else {
+        node[payload.keyName] = childValue;
+        selectedPath = [...targetPath, payload.keyName];
+      }
+
+      expanded.add(pathToKey(selectedPath.slice(0, -1)));
+      expanded.add(pathToKey(selectedPath));
+      setStatus(`PDF 已附加并结构化 (${payload.ocrStatus || "ok"})`);
+      render();
+      return true;
+    }
+
+    function finalizePdfAttachSplit(payload) {
+      const targetPath = Array.isArray(payload.targetPath) ? payload.targetPath : selectedPath;
+      const node = getNode(targetPath);
+      const pages = splitPdfTextByPages(pdfPreviewOcr.value);
+      if (!pages.length) {
+        alert("未检测到页分隔内容，无法按页拆分。");
+        return false;
+      }
+
+      const rootKey = payload.keyName;
+      const container = { 文件名: payload.fileName, 来源: "pdf", 识别状态: payload.ocrStatus || "ok", 页数: pages.length, 页内容: [] };
+
+      if (Array.isArray(node)) {
+        node.push({ [rootKey]: container });
+        selectedPath = [...targetPath, node.length - 1, rootKey];
+      } else if (Object.prototype.hasOwnProperty.call(node, rootKey)) {
+        const next = prompt("同名子键已存在，请输入新名称", rootKey + "_pdf");
+        if (!next) return false;
+        if (Object.prototype.hasOwnProperty.call(node, next)) {
+          alert("新名称仍然已存在，操作已取消");
+          return false;
+        }
+        node[next] = container;
+        selectedPath = [...targetPath, next];
+      } else {
+        node[rootKey] = container;
+        selectedPath = [...targetPath, rootKey];
+      }
+
+      for (const page of pages) {
+        container.页内容.push({ 页码: page.page, 标题: `第${page.page}页`, 文本: page.text });
+      }
+
+      expanded.add(pathToKey(selectedPath.slice(0, -1)));
+      expanded.add(pathToKey(selectedPath));
+      setStatus(`PDF 已按页拆分并入驻 (${pages.length} 页)`);
+      render();
+      return true;
+    }
+
+    async function requestPdfJson(file) {
+      const payload = {
+        name: file.name,
+        mime: file.type || "application/pdf",
+        data: await fileToBase64(file),
+        model: "gemma4:e4b"
+      };
+
+      const resp = await fetch("http://127.0.0.1:8010/pdf-json", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const rawText = await resp.text();
+      let result = null;
+      try {
+        result = JSON.parse(rawText);
+      } catch (err) {
+        result = null;
+      }
+
+      if (!resp.ok || (result && result.error)) {
+        const detail = result && result.error ? result.error : (rawText || `HTTP ${resp.status}`);
+        throw new Error(`HTTP ${resp.status}: ${detail}`);
+      }
+
+      if (!result) {
+        throw new Error(`HTTP ${resp.status}: 返回不是 JSON`);
+      }
+
+      return result;
+    }
+
+    async function attachPdfToCurrentNode(file, options = {}) {
+      const targetPath = Array.isArray(options.targetPath) ? options.targetPath : [...selectedPath];
+      const node = getNode(targetPath);
+      if (!isContainer(node)) {
+        alert("当前选中项不是可附加子键的容器");
+        return;
+      }
+
+      const keyName = options.keyName || prompt("附加子键名", sanitizeKeyName(file.name));
+      if (!keyName) return;
+
+      setStatus("PDF 处理中，请稍候...");
+      try {
+        const result = await requestPdfJson(file);
+        closePdfError();
+        lastFailedPdfRequest = null;
+
+        openPdfPreview({
+          fileName: file.name,
+          keyName,
+          ocrStatus: result.ocr_status || "ok",
+          ocrText: result.ocr || "(空)",
+          jsonValue: result.json || {},
+          model: "gemma4:e4b",
+          targetPath
+        });
+        setStatus("已生成预览，等待确认入驻");
+      } catch (err) {
+        lastFailedPdfRequest = { file, keyName, targetPath };
+        openPdfError(
+          "PDF 附加失败\n" +
+          String(err.message || err) +
+          "\n\n可点击【重试】再次发起请求。\n若持续失败，请检查 interview-lab/lab.py 与 Ollama 运行状态。"
+        );
+        setStatus("PDF 附加失败");
+      }
+    }
+
+    function ensureSelectionValid() {
+      try {
+        const node = getNode(selectedPath);
+        if (!isContainer(node)) {
+          selectedPath = [];
+        }
+      } catch (err) {
+        selectedPath = [];
+      }
+    }
+
+    function render() {
+      ensureSelectionValid();
+      searchVisiblePaths = buildSearchVisiblePaths();
+      currentPathEl.textContent = regPath(selectedPath);
+      renderTree();
+      renderTable();
+    }
+
+    function renderTree() {
+      treeEl.innerHTML = "";
+      const rootLi = createTreeNode([], "JSON_ROOT", data);
+      treeEl.appendChild(rootLi);
+    }
+
+    function createTreeNode(path, label, node) {
+      const li = document.createElement("li");
+      const row = document.createElement("div");
+      row.className = "tree-node";
+      if (pathToKey(path) === pathToKey(selectedPath)) {
+        row.classList.add("selected");
+      }
+
+      const expander = document.createElement("span");
+      expander.className = "expander";
+
+      const children = getTreeChildren(node);
+      const visibleChildren = children.filter((child) => {
+        if (!searchVisiblePaths || child.pseudo) return true;
+        const childPath = [...path, ...child.pathSuffix];
+        return searchVisiblePaths.has(pathToKey(childPath));
+      });
+      const hasChildren = visibleChildren.length > 0;
+      const key = pathToKey(path);
+      const isOpen = treeSearchKeyword ? true : expanded.has(key);
+      expander.textContent = hasChildren ? (isOpen ? "-" : "+") : "";
+
+      const text = document.createElement("span");
+      text.textContent = label;
+
+      row.appendChild(expander);
+      row.appendChild(text);
+      li.appendChild(row);
+
+      row.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        selectedPath = [...path];
+        if (hasChildren && ev.target === expander) {
+          if (expanded.has(key)) expanded.delete(key);
+          else expanded.add(key);
+        } else {
+          if (hasChildren && !expanded.has(key)) expanded.add(key);
+        }
+        render();
+      });
+
+      if (hasChildren && isOpen) {
+        const ul = document.createElement("ul");
+        for (const child of visibleChildren) {
+          if (child.pseudo) {
+            const p = document.createElement("li");
+            p.className = "muted";
+            p.textContent = child.label;
+            ul.appendChild(p);
+            continue;
+          }
+          const childPath = [...path, ...child.pathSuffix];
+          ul.appendChild(createTreeNode(childPath, child.label, child.value));
+        }
+        li.appendChild(ul);
+      }
+
+      return li;
+    }
+
+    function childContainerEntries(node) {
+      if (!isContainer(node)) return [];
+      if (Array.isArray(node)) {
+        return node
+          .map((v, i) => [i, v])
+          .filter(([, v]) => isContainer(v));
+      }
+      return Object.entries(node).filter(([, v]) => isContainer(v));
+    }
+
+    function getTreeChildren(node, ignoreSearch = false) {
+      if (!isContainer(node)) return [];
+
+      if (!Array.isArray(node)) {
+        return getVisibleEntries(node)
+          .filter(([, v]) => isContainer(v))
+          .map(([k, v]) => ({ pathSuffix: [k], label: String(k) + containerSizeHint(v), value: v }));
+      }
+
+      const children = [];
+      const limit = (!ignoreSearch && !treeSearchKeyword) ? Math.min(node.length, TREE_ARRAY_MAX_CHILDREN) : node.length;
+      for (let i = 0; i < limit; i++) {
+        const v = node[i];
+        if (!isContainer(v)) continue;
+
+        if (v && typeof v === "object" && !Array.isArray(v)) {
+          const keys = Object.keys(v);
+          if (keys.length === 1) {
+            const onlyKey = keys[0];
+            const onlyValue = v[onlyKey];
+            if (isContainer(onlyValue)) {
+              children.push({ pathSuffix: [i, onlyKey], label: `${onlyKey}${containerSizeHint(onlyValue)}`, value: onlyValue });
+              continue;
+            }
+            children.push({ pathSuffix: [i], label: arrayChildLabel(i, v), value: v });
+            continue;
+          }
+        }
+
+        children.push({ pathSuffix: [i], label: arrayChildLabel(i, v), value: v });
+      }
+
+      if ((!ignoreSearch && !treeSearchKeyword) && node.length > TREE_ARRAY_MAX_CHILDREN) {
+        const hidden = node.length - TREE_ARRAY_MAX_CHILDREN;
+        children.push({ pseudo: true, label: `... 还有 ${hidden} 项（使用筛选可精确定位）` });
+      }
+
+      return children;
+    }
+
+    function collectAllContainerPaths(node, basePath = []) {
+      if (!isContainer(node)) return [];
+      const all = [basePath];
+      const children = getTreeChildren(node);
+      for (const child of children) {
+        const childPath = [...basePath, ...child.pathSuffix];
+        all.push(...collectAllContainerPaths(child.value, childPath));
+      }
+      return all;
+    }
+
+    function renderTable() {
+      valueTableEl.innerHTML = "";
+      const node = getNode(selectedPath);
+      if (!isContainer(node)) return;
+
+      const rows = Array.isArray(node)
+        ? node.map((v, i) => ({ name: `[${i}]`, rawKey: i, value: v, fromArray: true }))
+        : getVisibleEntries(node).map(([k, v]) => ({ name: k, rawKey: k, value: v, fromArray: false }));
+
+      if (rows.length === 0) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = "<td class='muted' colspan='4'>(空)</td>";
+        valueTableEl.appendChild(tr);
+        return;
+      }
+
+      for (const rowData of rows) {
+        const tr = document.createElement("tr");
+        const type = typeOfValue(rowData.value);
+
+        const tdName = document.createElement("td");
+        tdName.textContent = rowData.name;
+
+        const tdType = document.createElement("td");
+        tdType.textContent = type;
+
+        const tdData = document.createElement("td");
+        tdData.textContent = preview(rowData.value);
+
+        const tdActions = document.createElement("td");
+        const actionBox = document.createElement("div");
+        actionBox.className = "actions";
+
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "编辑";
+        editBtn.addEventListener("click", () => editEntry(rowData.rawKey));
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "删除";
+        delBtn.addEventListener("click", () => deleteEntry(rowData.rawKey));
+
+        actionBox.appendChild(editBtn);
+        actionBox.appendChild(delBtn);
+
+        const promoteBtn = document.createElement("button");
+        promoteBtn.textContent = "升级";
+        promoteBtn.addEventListener("click", () => promoteEntry(rowData.rawKey));
+
+        const demoteBtn = document.createElement("button");
+        demoteBtn.textContent = "降级";
+        demoteBtn.addEventListener("click", () => demoteEntry(rowData.rawKey));
+
+        actionBox.appendChild(promoteBtn);
+        actionBox.appendChild(demoteBtn);
+
+        tdActions.appendChild(actionBox);
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdType);
+        tr.appendChild(tdData);
+        tr.appendChild(tdActions);
+        valueTableEl.appendChild(tr);
+      }
+    }
+
+    function removeEntry(container, key) {
+      if (Array.isArray(container)) {
+        return container.splice(Number(key), 1)[0];
+      }
+      const value = container[key];
+      delete container[key];
+      return value;
+    }
+
+    function addEntry(container, key, value) {
+      if (Array.isArray(container)) {
+        container.push(value);
+        return String(container.length - 1);
+      }
+
+      let finalKey = String(key);
+      if (Object.prototype.hasOwnProperty.call(container, finalKey)) {
+        const next = prompt("目标层级已存在同名键，请输入新键名", finalKey + "_moved");
+        if (!next) return null;
+        if (Object.prototype.hasOwnProperty.call(container, next)) {
+          alert("新键名仍然冲突，操作已取消");
+          return null;
+        }
+        finalKey = next;
+      }
+
+      container[finalKey] = value;
+      return finalKey;
+    }
+
+    function promoteEntry(key) {
+      if (!selectedPath.length) {
+        alert("顶层键无法继续升级");
+        return;
+      }
+
+      const source = getNode(selectedPath);
+      const targetPath = selectedPath.slice(0, -1);
+      const target = getNode(targetPath);
+      const value = source[key];
+      const preferredKey = Array.isArray(source) ? "moved_key" : String(key);
+      const placedKey = addEntry(target, preferredKey, value);
+      if (placedKey === null) return;
+
+      removeEntry(source, key);
+      expanded.add(pathToKey(targetPath));
+      setStatus("键已升级到上一级");
+      render();
+    }
+
+    function findDemoteTarget(container, key) {
+      if (Array.isArray(container)) {
+        const index = Number(key);
+        for (let i = index - 1; i >= 0; i--) {
+          if (isContainer(container[i])) return container[i];
+        }
+        for (let i = index + 1; i < container.length; i++) {
+          if (isContainer(container[i])) return container[i];
+        }
+        return null;
+      }
+
+      const keys = Object.keys(container);
+      const idx = keys.indexOf(String(key));
+      for (let i = idx - 1; i >= 0; i--) {
+        const candidate = container[keys[i]];
+        if (isContainer(candidate)) return candidate;
+      }
+      for (let i = idx + 1; i < keys.length; i++) {
+        const candidate = container[keys[i]];
+        if (isContainer(candidate)) return candidate;
+      }
+      return null;
+    }
+
+    function createDemoteTargetInObject(container, movingKey) {
+      const newTargetKey = prompt("没有可降级目标，请输入新容器键名", "group");
+      if (!newTargetKey) return null;
+      if (newTargetKey === String(movingKey)) {
+        alert("新容器键名不能与当前键名相同");
+        return null;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(container, newTargetKey)) {
+        if (!isContainer(container[newTargetKey])) {
+          alert("同名键已存在且不是容器，无法作为降级目标");
+          return null;
+        }
+        return container[newTargetKey];
+      }
+
+      const asArray = confirm("新建降级容器类型?\n确定: []\n取消: {}");
+      container[newTargetKey] = asArray ? [] : {};
+      return container[newTargetKey];
+    }
+
+    function createDemoteTargetInArray(container, index, movedValue) {
+      const asArray = confirm("没有可降级目标，创建新容器并包裹当前项?\n确定: []\n取消: {}");
+
+      if (asArray) {
+        const wrapper = [movedValue];
+        container.splice(index, 0, wrapper);
+        return true;
+      }
+
+      const childKey = prompt("新对象容器中的键名", "value");
+      if (!childKey) return false;
+      const wrapper = { [childKey]: movedValue };
+      container.splice(index, 0, wrapper);
+      return true;
+    }
+
+    function demoteEntry(key) {
+      const source = getNode(selectedPath);
+      let target = findDemoteTarget(source, key);
+      const value = source[key];
+
+      if (!target) {
+        if (Array.isArray(source)) {
+          const index = Number(key);
+          const movedValue = removeEntry(source, index);
+          const created = createDemoteTargetInArray(source, index, movedValue);
+          if (!created) {
+            source.splice(index, 0, movedValue);
+            return;
+          }
+          setStatus("未找到同级容器，已创建容器并完成降级");
+          render();
+          return;
+        }
+
+        target = createDemoteTargetInObject(source, key);
+        if (!target) return;
+      }
+
+      const preferredKey = Array.isArray(source) ? "moved_key" : String(key);
+      const placedKey = addEntry(target, preferredKey, value);
+      if (placedKey === null) return;
+
+      removeEntry(source, key);
+      setStatus("键已降级到下一级");
+      render();
+    }
+
+    function editEntry(key) {
+      const node = getNode(selectedPath);
+      const oldValue = node[key];
+      const nextRaw = prompt("输入新的 JSON 值", JSON.stringify(oldValue, null, 2));
+      if (nextRaw === null) return;
+
+      try {
+        const next = parseValueInput(nextRaw, true);
+        node[key] = next;
+        setStatus("值已更新");
+        render();
+      } catch (err) {
+        alert("JSON 解析失败: " + err.message);
+      }
+    }
+
+    function deleteEntry(key) {
+      const node = getNode(selectedPath);
+      const ok = confirm("确定删除该项吗？");
+      if (!ok) return;
+
+      if (Array.isArray(node)) {
+        node.splice(key, 1);
+      } else {
+        delete node[key];
+      }
+      setStatus("项已删除");
+      render();
+    }
+
+    function addValue() {
+      const node = getNode(selectedPath);
+      if (!isContainer(node)) return;
+
+      if (Array.isArray(node)) {
+        const raw = prompt("输入 JSON 值", "null");
+        if (raw === null) return;
+        try {
+          node.push(parseValueInput(raw, true));
+          setStatus("数组项已新增");
+          render();
+        } catch (err) {
+          alert("JSON 解析失败: " + err.message);
+        }
+        return;
+      }
+
+      const key = prompt("键名", "newValue");
+      if (!key) return;
+      if (Object.prototype.hasOwnProperty.call(node, key)) {
+        alert("键名已存在");
+        return;
+      }
+      const raw = prompt("输入 JSON 值", "null");
+      if (raw === null) return;
+
+      try {
+        node[key] = parseValueInput(raw, true);
+        setStatus("值已新增");
+        render();
+      } catch (err) {
+        alert("JSON 解析失败: " + err.message);
+      }
+    }
+
+    function addKey() {
+      const node = getNode(selectedPath);
+      if (!isContainer(node)) return;
+
+      if (Array.isArray(node)) {
+        const keyName = prompt("子键名", "newKey");
+        if (!keyName) return;
+
+        const asArray = confirm("子键值类型?\n确定: []\n取消: {}");
+        const childValue = asArray ? [] : {};
+        node.push({ [keyName]: childValue });
+        selectedPath = [...selectedPath, node.length - 1, keyName];
+        expanded.add(pathToKey(selectedPath));
+        setStatus("数组中已新增具名子键");
+        render();
+        return;
+      }
+
+      const key = prompt("子键名", "newKey");
+      if (!key) return;
+      if (Object.prototype.hasOwnProperty.call(node, key)) {
+        alert("键名已存在");
+        return;
+      }
+
+      const asArray = confirm("确定新增为数组子键?\n确定: []\n取消: {}");
+      node[key] = asArray ? [] : {};
+      expanded.add(pathToKey([...selectedPath, key]));
+      setStatus("子键已新增");
+      render();
+    }
+
+    function renameCurrentKey() {
+      if (!selectedPath.length) {
+        alert("根键不可重命名");
+        return;
+      }
+
+      const parent = getParent(selectedPath);
+      const oldKey = selectedPath[selectedPath.length - 1];
+
+      if (Array.isArray(parent)) {
+        const idx = Number(oldKey);
+        const entry = parent[idx];
+
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          const wrappedKey = prompt("为该数组项命名", "newKey");
+          if (!wrappedKey) return;
+          parent[idx] = { [wrappedKey]: entry };
+          setStatus("数组项已转换为具名键");
+          render();
+          return;
+        }
+
+        const innerKeys = Object.keys(entry);
+        if (innerKeys.length !== 1) {
+          alert("该数组项包含多个键，请先整理为单键对象后再重命名");
+          return;
+        }
+
+        const oldInnerKey = innerKeys[0];
+        const newInnerKey = prompt("新的键名", oldInnerKey);
+        if (!newInnerKey || newInnerKey === oldInnerKey) return;
+        if (Object.prototype.hasOwnProperty.call(entry, newInnerKey)) {
+          alert("键名已存在");
+          return;
+        }
+
+        entry[newInnerKey] = entry[oldInnerKey];
+        delete entry[oldInnerKey];
+        setStatus("数组项键名已重命名");
+        render();
+        return;
+      }
+
+      const newKey = prompt("新的键名", String(oldKey));
+      if (!newKey || newKey === oldKey) return;
+
+      if (Object.prototype.hasOwnProperty.call(parent, newKey)) {
+        alert("键名已存在");
+        return;
+      }
+
+      parent[newKey] = parent[oldKey];
+      delete parent[oldKey];
+
+      selectedPath = [...selectedPath.slice(0, -1), newKey];
+      setStatus("当前键已重命名");
+      render();
+    }
+
+    function deleteCurrentKey() {
+      if (!selectedPath.length) {
+        alert("根键不可删除");
+        return;
+      }
+
+      const parent = getParent(selectedPath);
+      const key = selectedPath[selectedPath.length - 1];
+      const ok = confirm("确定删除当前键及其所有子项吗？");
+      if (!ok) return;
+
+      if (Array.isArray(parent)) parent.splice(Number(key), 1);
+      else delete parent[key];
+
+      selectedPath = selectedPath.slice(0, -1);
+      setStatus("当前键已删除");
+      render();
+    }
+
+    function newDocument() {
+      const ok = confirm("确定新建文档? 未保存更改将丢失。");
+      if (!ok) return;
+      data = {};
+      selectedPath = [];
+      expanded.clear();
+      expanded.add("/");
+      setStatus("新文档已创建");
+      render();
+    }
+
+    function importJson(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(String(reader.result));
+          data = parsed;
+          selectedPath = isContainer(data) ? [] : [];
+          expanded.clear();
+          expanded.add("/");
+          setStatus("JSON 导入成功");
+          render();
+        } catch (err) {
+          alert("导入失败: " + err.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function exportJson() {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      a.href = url;
+      a.download = "registry-json-" + stamp + ".json";
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus("JSON 已导出");
+    }
+
+    // ── 直送主应用：当前树 → /symptom-packages/upload（树转换器→干净归档=该成员默认症状包）──
+    // 前置：本页须从 http://127.0.0.1:5500/ 打开（CORS 已放行），orchestrator 开 DEV_BYPASS_AUTH=1（本地单用户）。
+    const APP_API = "http://127.0.0.1:8000";
+    const memberSelect = document.getElementById("memberSelect");
+    const btnSubmitApp = document.getElementById("btnSubmitApp");
+
+    async function loadMembers() {
+      try {
+        const r = await fetch(APP_API + "/members");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const ms = await r.json();
+        memberSelect.innerHTML = "";
+        ms.forEach(m => {
+          const o = document.createElement("option");
+          o.value = m.id;
+          o.textContent = m.full_name + (m.relation ? "（" + m.relation + "）" : "");
+          memberSelect.appendChild(o);
+        });
+        setStatus("已载入成员 " + ms.length + " 人，可直送");
+      } catch (e) {
+        memberSelect.innerHTML = '<option value="">成员载入失败</option>';
+        setStatus("成员载入失败：" + e.message + "（请从 http://127.0.0.1:5500/ 打开本页，并确认 orchestrator 开启 DEV_BYPASS_AUTH=1）");
+      }
+    }
+
+    async function submitToApp() {
+      const mid = memberSelect.value;
+      if (!mid) { setStatus("请先选择目标成员（成员未载入则无法直送）"); return; }
+      if (!data || (typeof data === "object" && !Array.isArray(data) && Object.keys(data).length === 0)) {
+        setStatus("当前树为空，无可提交"); return;
+      }
+      if (!confirm("将当前树直送为该成员的症状包？\n它会归档为其最新（默认）症状包，可直接到主应用运行双盲评估。")) return;
+      btnSubmitApp.disabled = true;
+      setStatus("提交中…");
+      try {
+        const r = await fetch(APP_API + "/symptom-packages/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ member_id: mid, package: data }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.detail || ("HTTP " + r.status));
+        setStatus("✓ 已直送为症状包（记录 " + (d.archived_record_id || "?") + "）。回主应用硬刷新后即为默认包，可运行双盲评估");
+      } catch (e) {
+        setStatus("✗ 直送失败：" + e.message);
+      } finally {
+        btnSubmitApp.disabled = false;
+      }
+    }
+
+    btnSubmitApp.addEventListener("click", submitToApp);
+    loadMembers();
+
+    btnNew.addEventListener("click", newDocument);
+    btnImport.addEventListener("click", () => fileInput.click());
+    btnExport.addEventListener("click", exportJson);
+    btnPasteJson.addEventListener("click", openPasteJsonModal);
+    btnFormatJson.addEventListener("click", formatCurrentNode);
+    btnMedicalView.addEventListener("click", () => {
+      medicalView = !medicalView;
+      btnMedicalView.textContent = medicalView ? "医学视图: 开" : "医学视图: 关";
+      setStatus(medicalView ? "已启用医学视图（隐藏噪声字段）" : "已关闭医学视图");
+      render();
+    });
+    btnAttachPdf.addEventListener("click", () => pdfInput.click());
+
+    treeSearchEl.addEventListener("input", () => {
+      treeSearchKeyword = treeSearchEl.value.trim().toLowerCase();
+      setStatus(treeSearchKeyword ? `已启用树筛选: ${treeSearchEl.value}` : "已清空树筛选");
+      render();
+    });
+
+    btnTreeSearchClear.addEventListener("click", () => {
+      treeSearchEl.value = "";
+      treeSearchKeyword = "";
+      setStatus("已清空树筛选");
+      render();
+    });
+    btnExpandAll.addEventListener("click", () => {
+      expanded.clear();
+      const allPaths = collectAllContainerPaths(data);
+      for (const p of allPaths) expanded.add(pathToKey(p));
+      setStatus("已全部展开");
+      render();
+    });
+    btnCollapseAll.addEventListener("click", () => {
+      expanded.clear();
+      expanded.add("/");
+      selectedPath = [];
+      setStatus("已全部收起");
+      render();
+    });
+    btnAddValue.addEventListener("click", addValue);
+    btnAddKey.addEventListener("click", addKey);
+    btnRenameKey.addEventListener("click", renameCurrentKey);
+    btnDeleteKey.addEventListener("click", deleteCurrentKey);
+
+    pdfPreviewCancel.addEventListener("click", () => {
+      closePdfPreview();
+      setStatus("已取消 PDF 入驻");
+    });
+
+    pdfPreviewConfirm.addEventListener("click", () => {
+      if (!pendingPdfAttach) return;
+      const ok = selectedPdfAttachMode() === "split"
+        ? finalizePdfAttachSplit(pendingPdfAttach)
+        : finalizePdfAttach(pendingPdfAttach);
+      if (ok) closePdfPreview();
+    });
+
+    pdfPreviewBackdrop.addEventListener("click", (ev) => {
+      if (ev.target === pdfPreviewBackdrop) {
+        closePdfPreview();
+        setStatus("已取消 PDF 入驻");
+      }
+    });
+
+    pdfErrorClose.addEventListener("click", () => {
+      closePdfError();
+    });
+
+    pdfErrorRetry.addEventListener("click", () => {
+      if (!lastFailedPdfRequest) return;
+      closePdfError();
+      attachPdfToCurrentNode(lastFailedPdfRequest.file, {
+        keyName: lastFailedPdfRequest.keyName,
+        targetPath: lastFailedPdfRequest.targetPath
+      });
+    });
+
+    pdfErrorBackdrop.addEventListener("click", (ev) => {
+      if (ev.target === pdfErrorBackdrop) closePdfError();
+    });
+
+    pasteJsonCancel.addEventListener("click", closePasteJsonModal);
+    pasteJsonApply.addEventListener("click", applyPastedJsonToCurrent);
+    pasteJsonBackdrop.addEventListener("click", (ev) => {
+      if (ev.target === pasteJsonBackdrop) closePasteJsonModal();
+    });
+
+    pdfPreviewOcr.addEventListener("input", () => {
+      if (pendingPdfAttach) pendingPdfAttach.ocrText = pdfPreviewOcr.value;
+    });
+
+    pdfPreviewJson.addEventListener("input", () => {
+      if (pendingPdfAttach) pendingPdfAttach.jsonDraft = pdfPreviewJson.value;
+    });
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (file) importJson(file);
+      fileInput.value = "";
+    });
+
+    pdfInput.addEventListener("change", () => {
+      const file = pdfInput.files && pdfInput.files[0];
+      if (file) attachPdfToCurrentNode(file);
+      pdfInput.value = "";
+    });
+
+    window.addEventListener("keydown", (ev) => {
+      if (pasteJsonBackdrop.classList.contains("open") && (ev.ctrlKey || ev.metaKey) && ev.key === "Enter") {
+        ev.preventDefault();
+        applyPastedJsonToCurrent();
+        return;
+      }
+
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s") {
+        ev.preventDefault();
+        exportJson();
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>

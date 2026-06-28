@@ -311,6 +311,22 @@ function SidebarProgress({ prog }) {
   }, [running]);
   if (!running) return null;
   const stages = prog.stages || [];
+  // 进度树：主干（症状包）→ 两条支树干（A 国内 / B 国际）→ 树枝（各阶段），与数据树/处理树同构
+  const byKey = Object.fromEntries(stages.map(s => [s.key, s]));
+  const TREE = [
+    { shared: "rules" },   // 主干共享层：抽取指标+规则引擎（确定性既定事实层，两轨共享、只算一次）
+    { title: "流程 A · 国内指南 · 全中文自洽", keys: ["a2_retrieve", "a2_reason"] },
+    { title: "流程 B · 国际指南 · llama4 包办", keys: ["translate_en", "b_retrieve", "b_reason", "b_translate"] },
+  ];
+  const _icon = (st) => st === "done" ? "✓" : st === "active" ? "◐" : "○";
+  const _stripPfx = (l) => (l || "").replace(/^流程\s*[AB]\s*·\s*/, "");
+  const _col = (st) => st === "done" ? "var(--teal-500)" : st === "active" ? "var(--teal-900)" : "var(--muted2)";
+  const _branchSt = (keys) => {
+    const ss = keys.map(k => (byKey[k] || {}).status);
+    if (ss.length && ss.every(s => s === "done")) return "done";
+    if (ss.some(s => s === "active" || s === "done")) return "active";
+    return "pending";
+  };
   const el = prog.started_at ? Math.max(0, Math.floor(now / 1000 - prog.started_at)) : 0;
   const mm = String(Math.floor(el / 60)).padStart(2, "0"), ss = String(el % 60).padStart(2, "0");
   return (
@@ -319,13 +335,54 @@ function SidebarProgress({ prog }) {
         <span className="text-xs font-medium" style={{ color: "var(--teal-700)" }}>双盲评估进行中</span>
         <span className="text-xs tabular-nums" style={{ color: "var(--muted)" }}>{mm}:{ss}</span>
       </div>
-      <div className="space-y-1.5">
-        {stages.map((s, i) => {
-          const done = s.status === "done", act = s.status === "active";
+      <div className="text-xs" style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", lineHeight: 1.7 }}>
+        {/* 主干 */}
+        <div className="flex items-start">
+          <span style={{ whiteSpace: "pre", color: "var(--muted2)" }}>● </span>
+          <span style={{ fontWeight: 600, color: "var(--teal-700)" }}>症状包（主干）</span>
+        </div>
+        {TREE.map((br, bi) => {
+          const lastBr = bi === TREE.length - 1;
+          const conn = lastBr ? "└─ " : "├─ ";
+          // 主干共享层节点（如 抽取指标+规则引擎）：直接挂在主干下，非支树干
+          if (br.shared) {
+            const s = byKey[br.shared];
+            if (!s) return null;
+            const act = s.status === "active";
+            return (
+              <div key={bi} className="flex items-start">
+                <span style={{ whiteSpace: "pre", color: "var(--muted2)" }}>{conn}</span>
+                <span className={act ? "animate-pulse" : ""} style={{ width: "1em", textAlign: "center", flexShrink: 0, color: _col(s.status) }}>{_icon(s.status)}</span>
+                <span style={{ fontWeight: act ? 600 : 500, color: _col(s.status), marginLeft: ".3em" }}>
+                  {_stripPfx(s.label)}<span style={{ color: "var(--muted2)", fontWeight: 400 }}> · 两轨共享</span>
+                </span>
+              </div>
+            );
+          }
+          const bst = _branchSt(br.keys);
+          const vbar = lastBr ? "   " : "│  ";
           return (
-            <div key={i} className="flex items-start gap-1.5 text-xs" style={{ color: done ? "var(--teal-500)" : act ? "var(--teal-900)" : "var(--muted2)" }}>
-              <span className={act ? "animate-pulse" : ""} style={{ width: "1em", textAlign: "center", flexShrink: 0 }}>{done ? "✓" : act ? "◐" : "○"}</span>
-              <span style={{ fontWeight: act ? 600 : 400, lineHeight: 1.35 }}>{s.label}</span>
+            <div key={bi}>
+              {/* 支树干 */}
+              <div className="flex items-start">
+                <span style={{ whiteSpace: "pre", color: "var(--muted2)" }}>{conn}</span>
+                <span className={bst === "active" ? "animate-pulse" : ""} style={{ width: "1em", textAlign: "center", flexShrink: 0, color: _col(bst) }}>{_icon(bst)}</span>
+                <span style={{ fontWeight: 600, color: _col(bst), marginLeft: ".3em" }}>{br.title}</span>
+              </div>
+              {/* 树枝 */}
+              {br.keys.map((k, li) => {
+                const s = byKey[k];
+                if (!s) return null;
+                const lastLeaf = li === br.keys.length - 1;
+                const act = s.status === "active";
+                return (
+                  <div key={k} className="flex items-start">
+                    <span style={{ whiteSpace: "pre", color: "var(--muted2)" }}>{vbar}{lastLeaf ? "└─ " : "├─ "}</span>
+                    <span className={act ? "animate-pulse" : ""} style={{ width: "1em", textAlign: "center", flexShrink: 0, color: _col(s.status) }}>{_icon(s.status)}</span>
+                    <span style={{ fontWeight: act ? 600 : 400, color: _col(s.status), marginLeft: ".3em" }}>{_stripPfx(s.label)}</span>
+                  </div>
+                );
+              })}
             </div>
           );
         })}
@@ -933,7 +990,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
 
   function startInterview() { setView("department"); setError(null); }
 
-  // 上传症状包：浏览 .json → 读取解析 → 落地留底 + 归档为最新(默认)包 → 置顶选中
+  // 上传症状包：浏览 .json → 解析 → 【零加工】原样归档为最新(默认)包 → 直接进下拉、置顶选中
   const pkgFileRef = React.useRef(null);
   async function handleUploadPackage(file) {
     if (!file) return;
@@ -942,7 +999,7 @@ function MemberDetail({ member, records, onRefreshRecords, editingPackage, savin
       let pkg;
       try { pkg = JSON.parse(text); } catch (_) { throw new Error("不是合法的 JSON 文件"); }
       const h = await authHeaders();
-      const resp = await fetch(`${API_BASE}/symptom-packages/upload`, {
+      const resp = await fetch(`${API_BASE}/symptom-packages/upload-raw`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...h },
         body: JSON.stringify({ member_id: member.id, package: pkg }),
